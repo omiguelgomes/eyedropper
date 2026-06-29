@@ -1,0 +1,80 @@
+# generated: 2026-06-14
+# last_updated: 2026-06-14
+# project: eyedropper
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-06-14
+last_updated: 2026-06-29  # updated: 4-1 → done (code review)
+project: eyedropper
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 0: Infrastructure
+  epic-0: done
+  0-1-test-infrastructure: done
+  epic-0-retrospective: optional
+
+  # Epic 1: Foundation, Upload & Editor Shell
+  epic-1: done
+  1-1-project-scaffold-and-core-libraries: done
+  1-2-image-upload-page-and-api: done
+  1-3-editor-shell-and-9-16-canvas: done
+  epic-1-retrospective: optional
+
+  # Epic 2: Color Point Detection & Interactive Editing
+  epic-2: in-progress
+  2-1-slic-point-suggestion-via-python: done
+  2-2-claude-point-suggestion-optional: done
+  2-3-eyedropper-points-rendering-and-color-sampling: done
+  2-4-drag-markers-and-live-color-update: done
+  2-5-drag-swatches-along-edge: done
+  2-6-add-and-remove-points: done
+  2-7-point-selection-and-right-panel-state: done
+  epic-2-retrospective: optional
+
+  # Epic 3: Style System & Label Editing
+  epic-3: in-progress
+  3-1-style-picker-and-live-style-switching: done
+  3-2-label-editing-mode-and-text-input: done
+  3-3-label-dragging-and-per-label-controls: done
+  3-4-apply-to-all-label-controls: done
+  epic-3-retrospective: optional
+
+  # Epic 4: Export & Production Cleanup
+  epic-4: in-progress
+  4-1-jpeg-export-and-download: done
+  4-2-upload-cleanup-cron: backlog
+  epic-4-retrospective: optional

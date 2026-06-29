@@ -1,0 +1,50 @@
+[
+  {
+    "name": "float_clean",
+    "swatchRadius": 48,
+    "swatchBorderColor": "#ffffff",
+    "swatchBorderWidth": 3,
+    "connectorType": "curved",
+    "connectorColor": "#1e1e1e",
+    "connectorWidth": 2,
+    "markerStyle": "ring",
+    "markerColor": "#ffffff",
+    "labelPosition": "none"
+  },
+  {
+    "name": "float",
+    "swatchRadius": 48,
+    "swatchBorderColor": "#ffffff",
+    "swatchBorderWidth": 3,
+    "connectorType": "curved",
+    "connectorColor": "#1e1e1e",
+    "connectorWidth": 2,
+    "markerStyle": "ring",
+    "markerColor": "#ffffff",
+    "labelPosition": "beside"
+  },
+  {
+    "name": "grid",
+    "swatchRadius": 48,
+    "swatchBorderColor": "#ffffff",
+    "swatchBorderWidth": 3,
+    "connectorType": "none",
+    "connectorColor": "#1e1e1e",
+    "connectorWidth": 2,
+    "markerStyle": "dot",
+    "markerColor": "#ffffff",
+    "labelPosition": "below"
+  },
+  {
+    "name": "minimal",
+    "swatchRadius": 40,
+    "swatchBorderColor": "#ffffff",
+    "swatchBorderWidth": 2,
+    "connectorType": "straight",
+    "connectorColor": "#1e1e1e",
+    "connectorWidth": 1,
+    "markerStyle": "none",
+    "markerColor": "#ffffff",
+    "labelPosition": "none"
+  }
+]
