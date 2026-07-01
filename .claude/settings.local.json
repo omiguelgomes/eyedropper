@@ -40,7 +40,9 @@
       "Bash(sips --cropToHeightWidth 620 465 --cropOffset 430 200 \"/Users/miguel.gomes/Downloads/WhatsApp Image 2026-06-11 at 12.41.10.jpeg\" --out /tmp/_sample_crop.jpg)",
       "Bash(sips --cropToHeightWidth 760 570 --cropOffset 150 470 \"/Users/miguel.gomes/Downloads/WhatsApp Image 2026-06-11 at 12.50.04.jpeg\" --out /tmp/_sample_crop.jpg)",
       "Bash(sips --cropToHeightWidth 560 420 --cropOffset 230 540 \"/Users/miguel.gomes/Downloads/WhatsApp Image 2026-06-11 at 12.50.04.jpeg\" --out /tmp/_sample_crop.jpg)",
-      "Bash(perl -0pi -e 's/^\\\\s*style=\\\\{styleByName\\\\\\(\"[^\"]+\"\\\\\\)\\\\}\\\\n//mg' components/Editor/LabelEditOverlay.test.tsx)"
+      "Bash(perl -0pi -e 's/^\\\\s*style=\\\\{styleByName\\\\\\(\"[^\"]+\"\\\\\\)\\\\}\\\\n//mg' components/Editor/LabelEditOverlay.test.tsx)",
+      "Bash(timeout 300 npm run build)",
+      "Bash(python3 _bmad/scripts/resolve_customization.py --skill .claude/skills/bmad-dev-story --key workflow.on_complete)"
     ]
   }
 }

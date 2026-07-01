@@ -47,6 +47,8 @@ function makePoint(
     color: "#ff0000",
     swatchSide: "left",
     swatchOrder: 300,
+    swatchX: null,
+    swatchY: null,
     label: {
       text: "Crimson",
       visible: true,

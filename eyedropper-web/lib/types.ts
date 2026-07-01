@@ -14,6 +14,10 @@ export interface EyedropperPoint {
   color: string
   swatchSide: "auto" | "left" | "right" | "top" | "bottom"
   swatchOrder: number | null
+  // Absolute canvas-space position of a manually-placed (free-floating) swatch.
+  // null = not yet detached; the swatch follows the auto edge layout instead.
+  swatchX: number | null
+  swatchY: number | null
   label: {
     text: string
     visible: boolean

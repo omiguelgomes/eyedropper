@@ -143,6 +143,10 @@ The user can download a crisp 9:16 JPEG of their annotated drawing; uploads are 
 **NFRs:** NFR5, NFR8
 **UX-DRs:** UX-DR7
 
+### Epic 5: Free Swatch Placement & Alignment
+The user can drag swatches anywhere on the 9:16 canvas (not just along an edge), with CAD-style alignment snapping and guide lines so swatches can be composed freely yet kept tidy. Reworks the edge-locked swatch model established in Epic 2.
+**Note:** Relaxes the "no swatch lines cross" non-negotiable (SPEC.md non-negotiable #3 / CLAUDE constraint #3) — the no-crossing guarantee now applies only to the generated initial layout; manual free placement is the artist's responsibility. Derived from deferred work recorded during Story 3.1 (see `deferred-work.md`).
+
 ---
 
 ## Epic 1: Foundation, Upload & Editor Shell
@@ -646,3 +650,91 @@ So that the server does not accumulate stale files from past sessions.
 **Given** the cron is deployed to Vercel
 **When** the project is inspected
 **Then** a `vercel.json` cron entry (or equivalent) is present that schedules the cleanup function to run at least once per hour
+
+---
+
+## Epic 5: Free Swatch Placement & Alignment
+
+The user can drag swatches anywhere on the 9:16 canvas with CAD-style alignment snapping, replacing the edge-locked model from Epic 2. Generation and the initial auto-layout stay exactly as today; the change is purely in how swatches move after generation.
+
+**Decided design (from grilling, 2026-06-30):**
+- Edges become *initial layout only*. Generation/auto-layout is unchanged; the first time a swatch is dragged it detaches from its edge and gains an absolute `(x, y)` on the canvas.
+- The "no connector lines cross" guarantee is dropped for manually-placed swatches (still holds for the generated layout). SPEC non-negotiable #3 / CLAUDE constraint #3 to be relaxed accordingly.
+- Swatches may be placed anywhere within the 9:16 canvas (including the letterbox padding), clamped to canvas bounds. Swatch-on-swatch overlap is prevented by **blocking the drop** (stop at nearest non-overlapping position) — no push-aside, no cascading.
+- The "Swatch side" control (auto/left/right/top/bottom) is removed from the right panel.
+- Re-layout rules: re-suggest replaces all points (fresh auto layout); adding a point auto-places only the new one; switching style and removing a point preserve existing manual positions.
+- Snapping (Story 5.2) is soft (small pixel threshold, pull away to escape) with no modifier override and no toggle; snap targets are other swatches' center X/Y, even spacing/distribution, canvas edges + centerlines, and the swatch's own marker; CAD/Figma-style guide lines are drawn during the drag.
+
+### Story 5.1: Free-Floating Swatch Placement
+
+As an **artist**,
+I want to drag a swatch to any position on the 9:16 canvas instead of only along its edge,
+So that I can compose the layout freely rather than being constrained to the four edges.
+
+**Acceptance Criteria:**
+
+**Given** I am in Select/drag mode
+**When** I drag a swatch circle
+**Then** the swatch moves freely in two dimensions and can be dropped at any position within the 9:16 canvas (including over the image and in the letterbox padding), clamped so the swatch stays fully inside the canvas
+
+**Given** I have not yet dragged a swatch
+**When** points are generated (SLIC/Claude) or a new point is added
+**Then** the swatch is placed by the existing auto edge-layout exactly as before this story
+
+**Given** I drag a swatch for the first time
+**When** the drag ends
+**Then** the swatch is stored as a free-floating swatch with an absolute canvas `(x, y)` and no longer participates in edge redistribution; its connector line from the marker follows the new position
+
+**Given** I drop a swatch where it would overlap another swatch
+**When** the drag ends
+**Then** the drop is blocked — the swatch settles at the nearest position that does not overlap any other swatch (no other swatch is moved)
+
+**Given** I have manually placed one or more swatches
+**When** I switch style, or remove a different point
+**Then** the manually-placed swatches keep their positions (no auto re-layout is run)
+
+**Given** I have manually placed one or more swatches
+**When** I re-run a suggestion (SLIC/Claude)
+**Then** all points are replaced and laid out fresh by the auto edge-layout (manual positions are not preserved, since the point set is entirely new)
+
+**Given** a swatch is selected in Select/drag mode
+**When** I view the right panel
+**Then** the "Swatch side" (auto/left/right/top/bottom) control is no longer shown
+
+**Given** swatches have been freely placed such that connector lines cross
+**When** I view or export the canvas
+**Then** the crossing lines are allowed (the no-crossing guarantee applies only to the generated initial layout)
+
+### Story 5.2: CAD-Style Alignment Snapping & Guides
+
+As an **artist**,
+I want swatches to snap into alignment with other swatches, the canvas, and their own markers while I drag them, with guide lines showing the alignment,
+So that I can keep a freely-composed layout tidy and visually aligned without manual pixel-nudging.
+
+**Acceptance Criteria:**
+
+**Given** I am dragging a free-floating swatch
+**When** its center comes within a small pixel threshold of sharing an X or Y coordinate with another swatch's center
+**Then** the swatch snaps to that shared coordinate, and a guide line is drawn through the aligned centers
+
+**Given** I am dragging a free-floating swatch
+**When** it reaches a position where the spacing between three or more swatches becomes equal
+**Then** the swatch snaps to the equal-spacing position and a distribution guide is shown
+
+**Given** I am dragging a free-floating swatch
+**When** its center approaches a canvas edge or the horizontal/vertical centerline of the 9:16 frame
+**Then** the swatch snaps to that edge/centerline and a guide line is shown
+
+**Given** I am dragging a free-floating swatch
+**When** its center aligns horizontally or vertically with its own marker on the image
+**Then** the swatch snaps to that alignment and a guide line is shown
+
+**Given** a swatch has snapped to an alignment
+**When** I keep dragging past the snap threshold
+**Then** the swatch pulls away freely (soft snap — no modifier key needed to escape)
+
+**Given** I release a swatch after any snap
+**When** the drag ends
+**Then** all guide lines disappear and the swatch stays at its final position; overlap-blocking from Story 5.1 still applies
+
+---

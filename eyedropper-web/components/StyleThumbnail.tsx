@@ -1,6 +1,8 @@
 "use client"
 
-import { Stage, Layer, Circle, Line, Image as KonvaImage } from "react-konva"
+import { useLayoutEffect, useRef } from "react"
+import { Stage, Layer, Circle, Line, Group, Image as KonvaImage } from "react-konva"
+import type Konva from "konva"
 import type { Style } from "@/lib/styles"
 
 const THUMB_W = 60
@@ -29,12 +31,41 @@ function curvedMidpoint(sx: number, sy: number, mx: number, my: number): [number
   return [cx + 10, cy]
 }
 
+// Thumbnail-scale textured swatch (pastel). Same disc × pencil(multiply) ∩
+// pencil-alpha + border pipeline as EyedropperLayer, in a cached Group so the
+// composite ops stay isolated from the sample drawing beneath (AC9). Small
+// enough that a faithful-enough approximation reads as pastel at a glance.
+function ThumbTexturedSwatch({
+  x, y, radius, color, pencil, border,
+}: {
+  x: number; y: number; radius: number; color: string
+  pencil: HTMLImageElement; border: HTMLImageElement
+}) {
+  const groupRef = useRef<Konva.Group>(null)
+  useLayoutEffect(() => {
+    const g = groupRef.current
+    if (g && typeof g.cache === "function") g.cache()
+  }, [color, radius, pencil, border])
+  return (
+    <Group ref={groupRef} x={x} y={y} listening={false}>
+      <Circle x={0} y={0} radius={radius} fill={color} />
+      <KonvaImage image={pencil} x={-radius} y={-radius} width={2 * radius} height={2 * radius}
+        globalCompositeOperation="multiply" listening={false} />
+      <KonvaImage image={pencil} x={-radius} y={-radius} width={2 * radius} height={2 * radius}
+        globalCompositeOperation="destination-in" listening={false} />
+      <KonvaImage image={border} x={-radius} y={-radius} width={2 * radius} height={2 * radius} listening={false} />
+    </Group>
+  )
+}
+
 interface Props {
   style: Style
   sampleImg: HTMLImageElement | null
+  pencilTexture?: HTMLImageElement | null
+  borderTexture?: HTMLImageElement | null
 }
 
-export default function StyleThumbnail({ style, sampleImg }: Props) {
+export default function StyleThumbnail({ style, sampleImg, pencilTexture, borderTexture }: Props) {
   // Hydration-safe: until the shared sample image has loaded, render a neutral
   // placeholder box (no Konva Stage, which needs a real browser canvas).
   if (!sampleImg) {
@@ -48,6 +79,7 @@ export default function StyleThumbnail({ style, sampleImg }: Props) {
   }
 
   const swatchX = THUMB_W - SWATCH_R
+  const useTexture = !!(style.swatchTexture && pencilTexture && borderTexture)
 
   return (
     <Stage width={THUMB_W} height={THUMB_H}>
@@ -75,19 +107,31 @@ export default function StyleThumbnail({ style, sampleImg }: Props) {
             )
           })}
 
-        {/* Swatches */}
-        {SAMPLE_POINTS.map((p, i) => (
-          <Circle
-            key={`swatch-${i}`}
-            x={swatchX}
-            y={p.swatchY}
-            radius={SWATCH_R}
-            fill={p.color}
-            stroke={style.swatchBorderColor}
-            strokeWidth={style.swatchBorderWidth}
-            listening={false}
-          />
-        ))}
+        {/* Swatches — textured (pastel) or flat, mirroring EyedropperLayer. */}
+        {SAMPLE_POINTS.map((p, i) =>
+          useTexture ? (
+            <ThumbTexturedSwatch
+              key={`swatch-${i}`}
+              x={swatchX}
+              y={p.swatchY}
+              radius={SWATCH_R}
+              color={p.color}
+              pencil={pencilTexture!}
+              border={borderTexture!}
+            />
+          ) : (
+            <Circle
+              key={`swatch-${i}`}
+              x={swatchX}
+              y={p.swatchY}
+              radius={SWATCH_R}
+              fill={p.color}
+              stroke={style.swatchBorderColor}
+              strokeWidth={style.swatchBorderWidth}
+              listening={false}
+            />
+          )
+        )}
 
         {/* Markers — ring (hollow) / dot (filled) / none, mirroring EyedropperLayer */}
         {style.markerStyle !== "none" &&

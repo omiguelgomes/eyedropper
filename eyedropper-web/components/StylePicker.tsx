@@ -16,12 +16,24 @@ export default function StylePicker({ styles, activeStyleName, onSelect }: Props
   // created in useEffect, initialized null, thumbnails render a placeholder
   // until it resolves.
   const [sampleImg, setSampleImg] = useState<HTMLImageElement | null>(null)
+  // Pastel-swatch textures for the textured thumbnail (Story 3.5), loaded once
+  // and shared across thumbnails — same hydration-safe pattern as sampleImg.
+  const [pencilTexture, setPencilTexture] = useState<HTMLImageElement | null>(null)
+  const [borderTexture, setBorderTexture] = useState<HTMLImageElement | null>(null)
   useEffect(() => {
     const im = new window.Image()
     im.onload = () => setSampleImg(im)
     im.src = "/sample-drawing.jpg"
+    const pencil = new window.Image()
+    pencil.onload = () => setPencilTexture(pencil)
+    pencil.src = "/textures/swatch-pencil.png"
+    const border = new window.Image()
+    border.onload = () => setBorderTexture(border)
+    border.src = "/textures/swatch-border.png"
     return () => {
       im.onload = null
+      pencil.onload = null
+      border.onload = null
     }
   }, [])
 
@@ -41,7 +53,12 @@ export default function StylePicker({ styles, activeStyleName, onSelect }: Props
                 : "border-[var(--color-border)] hover:border-[var(--color-accent)]"
             }`}
           >
-            <StyleThumbnail style={style} sampleImg={sampleImg} />
+            <StyleThumbnail
+              style={style}
+              sampleImg={sampleImg}
+              pencilTexture={pencilTexture}
+              borderTexture={borderTexture}
+            />
             <span className="text-[10px] text-[var(--color-text-secondary)]">{style.name}</span>
           </button>
         )

@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockExistsSync = vi.fn()
 const mockReadFileSync = vi.fn()
+const mockUtimesSync = vi.fn()
 
 vi.mock("fs", () => ({
   default: {
     existsSync: mockExistsSync,
     readFileSync: mockReadFileSync,
+    utimesSync: mockUtimesSync,
   },
 }))
 
@@ -80,5 +82,26 @@ describe("GET /api/image", () => {
     const body = Buffer.from(await res.arrayBuffer())
     expect(body.equals(fakeBuffer)).toBe(true)
     expect(mockReadFileSync).toHaveBeenCalledWith(`/tmp/${validId}/original.jpg`)
+  })
+
+  it("touches the upload dir mtime on access so the cleanup cron uses an idle TTL", async () => {
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue(Buffer.from("fake-jpeg-data"))
+    const { GET } = await import("./route")
+    const validId = "550e8400-e29b-41d4-a716-446655440000"
+    await GET(makeReq(validId))
+    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${validId}`, expect.any(Date), expect.any(Date))
+  })
+
+  it("still serves the image if touching the dir mtime throws", async () => {
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue(Buffer.from("fake-jpeg-data"))
+    mockUtimesSync.mockImplementation(() => {
+      throw new Error("ENOENT: raced a delete")
+    })
+    const { GET } = await import("./route")
+    const validId = "550e8400-e29b-41d4-a716-446655440000"
+    const res = await GET(makeReq(validId))
+    expect(res.status).toBe(200)
   })
 })

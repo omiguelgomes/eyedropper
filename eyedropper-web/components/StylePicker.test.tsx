@@ -16,14 +16,14 @@ import StylePicker from "./StylePicker"
 const STYLES = loadStyles()
 
 describe("StylePicker", () => {
-  it("renders one button per style (4 built-in styles)", () => {
+  it("renders one button per style (5 built-in styles incl. pastel)", () => {
     const { getAllByRole } = render(
       <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={vi.fn()} />
     )
     const buttons = getAllByRole("button")
-    expect(buttons).toHaveLength(4)
+    expect(buttons).toHaveLength(5)
     const names = buttons.map((b) => b.textContent)
-    expect(names).toEqual(["float_clean", "float", "grid", "minimal"])
+    expect(names).toEqual(["float_clean", "float", "grid", "minimal", "pastel"])
   })
 
   it("marks only the active style button aria-pressed='true'", () => {
@@ -60,6 +60,23 @@ describe("StylePicker", () => {
     expect(arg.connectorType).toBe("none")
   })
 
+  it("pastel is selectable and highlights when active (Story 3.5 AC1)", () => {
+    const onSelect = vi.fn()
+    const { getByText, rerender } = render(
+      <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={onSelect} />
+    )
+    const pastelBtn = getByText("pastel").closest("button")!
+    expect(pastelBtn.getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(pastelBtn)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onSelect.mock.calls[0][0].name).toBe("pastel")
+    expect(onSelect.mock.calls[0][0].swatchTexture).toBe("/textures/swatch-pencil.png")
+    rerender(<StylePicker styles={STYLES} activeStyleName="pastel" onSelect={onSelect} />)
+    const activePastel = getByText("pastel").closest("button")!
+    expect(activePastel.getAttribute("aria-pressed")).toBe("true")
+    expect(activePastel.className).toContain("border-[var(--color-accent)]")
+  })
+
   it("passes each style down to its thumbnail", () => {
     const { getAllByTestId } = render(
       <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={vi.fn()} />
@@ -70,6 +87,7 @@ describe("StylePicker", () => {
       "float",
       "grid",
       "minimal",
+      "pastel",
     ])
   })
 })

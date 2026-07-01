@@ -7,6 +7,17 @@ import sharp from "sharp"
 
 const SLIC_TIMEOUT_MS = 30_000
 
+// Bump the upload dir's mtime so the cleanup cron treats time-since-last-access,
+// not time-since-upload, as the idle TTL (see cleanup/route.ts). Non-fatal.
+function touchDir(id: string) {
+  try {
+    const nowDate = new Date()
+    fs.utimesSync(path.join("/tmp", id), nowDate, nowDate)
+  } catch {
+    // ignore — a missing/racing dir will surface as a read failure downstream
+  }
+}
+
 // Reused across requests; only constructed once a Claude call is made (after the
 // API-key guard), so the keyless case never instantiates it.
 let anthropicClient: Anthropic | null = null
@@ -44,6 +55,7 @@ export async function POST(request: NextRequest) {
     let imageWidth: number
     let imageHeight: number
     try {
+      touchDir(id)
       buffer = await fs.promises.readFile(imagePath)
       const meta = await sharp(buffer).metadata()
       imageWidth = meta.width!
@@ -106,6 +118,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown method" }, { status: 400 })
   }
 
+  touchDir(id)
   const imagePath = path.join("/tmp", id, "original.jpg")
   const scriptPath = path.join(process.cwd(), "scripts", "slic_suggest.py")
   const venvPython = path.join(process.cwd(), "scripts", ".venv", "bin", "python3")

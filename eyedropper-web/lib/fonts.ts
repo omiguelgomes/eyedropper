@@ -4,6 +4,7 @@ import {
   Inter,
   DM_Serif_Display,
   Libre_Baskerville,
+  Caveat,
 } from "next/font/google"
 
 // next/font/google calls must be at module scope with literal args (build-time
@@ -41,6 +42,13 @@ const libre = Libre_Baskerville({
   variable: "--font-libre",
   display: "swap",
 })
+// Caveat is the companion handwriting font for the pastel style (Story 3.5).
+// Variable font (only "normal" style), so no weight/style — matches Inter's shape.
+const caveat = Caveat({
+  subsets: ["latin"],
+  variable: "--font-caveat",
+  display: "swap",
+})
 
 // CSS-variable class names for app/layout.tsx to attach to <body>.
 export const fontVariables = [
@@ -49,6 +57,7 @@ export const fontVariables = [
   inter.variable,
   dmSerif.variable,
   libre.variable,
+  caveat.variable,
 ]
 
 // The 6 dropdown options in exact AC7 order. `label` is the stored,
@@ -61,6 +70,7 @@ export const FONT_OPTIONS: { label: string; family: string }[] = [
   { label: "DM Serif Display", family: dmSerif.style.fontFamily },
   { label: "Libre Baskerville Italic", family: libre.style.fontFamily },
   { label: "System", family: "serif" },
+  { label: "Caveat", family: caveat.style.fontFamily },
 ]
 
 // Map a stored label.fontFamily (human label) to the actual render family.

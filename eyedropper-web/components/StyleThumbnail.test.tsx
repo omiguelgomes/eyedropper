@@ -7,7 +7,10 @@ import { loadStyles } from "@/lib/styles"
 vi.mock("react-konva", () => ({
   Stage: ({ children }: { children?: React.ReactNode }) => <div data-testid="stage">{children}</div>,
   Layer: ({ children }: { children?: React.ReactNode }) => <div data-testid="layer">{children}</div>,
-  Image: () => <div data-testid="image" />,
+  Group: ({ children }: { children?: React.ReactNode }) => <div data-testid="group">{children}</div>,
+  Image: ({ image, globalCompositeOperation }: { image?: HTMLImageElement; globalCompositeOperation?: string }) => (
+    <div data-testid="image" data-image={image ? "loaded" : "none"} data-gco={globalCompositeOperation ?? ""} />
+  ),
   Line: ({ stroke }: { stroke?: string }) => <div data-testid="line" data-stroke={stroke} />,
   Circle: ({ radius, fill, stroke }: { radius?: number; fill?: string; stroke?: string }) => (
     <div data-testid="circle" data-radius={radius} data-fill={fill} data-stroke={stroke} />
@@ -22,6 +25,7 @@ const byName = (name: string) => styles.find((s) => s.name === name)!
 // A minimal stand-in for the loaded sample image — the mocked Konva Image
 // ignores it, so any non-null value satisfies the "loaded" branch.
 const fakeImg = {} as HTMLImageElement
+const fakeTexture = {} as HTMLImageElement
 
 describe("StyleThumbnail", () => {
   it("renders a neutral placeholder (no Stage) until the sample image loads", () => {
@@ -66,5 +70,44 @@ describe("StyleThumbnail", () => {
     // point color, none hollow).
     const hollow = queryAllByTestId("circle").filter((c) => c.getAttribute("data-fill") === null)
     expect(hollow).toHaveLength(0)
+  })
+
+  it("pastel with textures supplied renders textured swatch elements (pencil multiply + border images) (AC9)", () => {
+    const { queryAllByTestId } = render(
+      <StyleThumbnail
+        style={byName("pastel")}
+        sampleImg={fakeImg}
+        pencilTexture={fakeTexture}
+        borderTexture={fakeTexture}
+      />
+    )
+    // The sample drawing image plus per-swatch texture images. A pencil image
+    // uses multiply; the border image is drawn as-is.
+    const gcos = queryAllByTestId("image").map((i) => i.getAttribute("data-gco"))
+    expect(gcos).toContain("multiply")
+    // At least one flat swatch Circle should NOT be drawn (textured path replaces
+    // it); markers still render as hollow rings.
+    const swatchGroups = queryAllByTestId("group")
+    expect(swatchGroups.length).toBeGreaterThan(0)
+  })
+
+  it("pastel with textures null falls back to flat swatch Circles, no crash (AC9)", () => {
+    const { queryAllByTestId } = render(
+      <StyleThumbnail
+        style={byName("pastel")}
+        sampleImg={fakeImg}
+        pencilTexture={null}
+        borderTexture={null}
+      />
+    )
+    // No multiply texture images (only the sample drawing image, drawn as-is).
+    const gcos = queryAllByTestId("image").map((i) => i.getAttribute("data-gco"))
+    expect(gcos).not.toContain("multiply")
+    // Flat swatch circles filled with the sample colors are present.
+    const filled = queryAllByTestId("circle").filter((c) => {
+      const f = c.getAttribute("data-fill")
+      return f && f !== byName("pastel").markerColor
+    })
+    expect(filled.length).toBeGreaterThan(0)
   })
 })

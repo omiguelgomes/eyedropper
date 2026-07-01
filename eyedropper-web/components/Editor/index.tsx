@@ -6,7 +6,8 @@ import { canvasTo916 } from "@/lib/canvas-to-916"
 import type { CanvasLayout } from "@/lib/canvas-to-916"
 import type { EyedropperPoint } from "@/lib/types"
 import { sampleColor } from "@/lib/color-sample"
-import { assignSwatchLayout, placeSwatchOnEdge } from "@/lib/swatch-layout"
+import { assignSwatchLayout, resolveSwatchOverlap, computeSwatchSnap } from "@/lib/swatch-layout"
+import type { SnapGuide, DistributionGuide } from "@/lib/swatch-layout"
 import { clampToImage } from "@/lib/drag-utils"
 import { applyFieldToAll } from "@/lib/apply-to-all"
 import { triggerDownload } from "@/lib/download"
@@ -58,6 +59,10 @@ interface EditorShellProps {
 
 let pointIdCounter = 0
 
+// Snap pull distance in on-screen pixels; converted to canvas space per-frame
+// using the live scale so it feels constant regardless of image resolution.
+const SNAP_SCREEN_PX = 8
+
 // Convert a canvas-space click into an in-band image-space point, or null if the
 // click landed in the 9:16 letterbox padding (outside the drawn image). Exported
 // for unit testing the AC2 band-guard without standing up the whole EditorShell.
@@ -85,6 +90,8 @@ export function apiPointsToEyedroppers(
     color: p.color,
     swatchSide: "auto",
     swatchOrder: null,
+    swatchX: null,
+    swatchY: null,
     label: {
       text: "",
       visible: true,
@@ -107,6 +114,8 @@ export function claudePointsToEyedroppers(
     color: "#888888",
     swatchSide: "auto",
     swatchOrder: null,
+    swatchX: null,
+    swatchY: null,
     label: {
       text: p.description,
       visible: true,
@@ -176,6 +185,34 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     styleRef.current = style
   }, [style])
   const pointsRef = useRef<EyedropperPoint[]>([])
+  // On-screen scale (display px per canvas px), mirrored in a ref so the swatch
+  // drag handlers can read it without depending on displaySize (keeps their deps
+  // empty). Synced by the effect below alongside displaySize/canvasLayout.
+  const scaleRef = useRef<number>(1)
+  // Ephemeral alignment guide lines shown only while a free swatch is dragged;
+  // cleared on every dragEnd (Story 5.2). Never persisted.
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([])
+  const [distribution, setDistribution] = useState<DistributionGuide[]>([])
+  // Pastel-swatch textures (Story 3.5), loaded once and shared across every
+  // swatch. Hydration-safe (browser Image in an effect, init null, cleanup nulls
+  // handlers) per docs/project-context.md. Only the pastel style uses them; the
+  // two PNGs are tiny (~24KB) so loading unconditionally is fine, and the layer
+  // falls back to the flat Circle until they decode.
+  const [pencilTexture, setPencilTexture] = useState<HTMLImageElement | null>(null)
+  const [borderTexture, setBorderTexture] = useState<HTMLImageElement | null>(null)
+  useEffect(() => {
+    const pencil = new window.Image()
+    pencil.onload = () => setPencilTexture(pencil)
+    pencil.src = "/textures/swatch-pencil.png"
+    const border = new window.Image()
+    border.onload = () => setBorderTexture(border)
+    border.src = "/textures/swatch-border.png"
+    return () => {
+      pencil.onload = null
+      border.onload = null
+    }
+  }, [])
+
   const [interactionMode, setInteractionMode] = useState<"select" | "add">("select")
   const [contextMenu, setContextMenu] = useState<{ pointId: string; x: number; y: number } | null>(null)
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
@@ -192,8 +229,33 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     pointsRef.current = points
   }, [points])
 
+  // Keep scaleRef synced with the live on-screen scale (= displaySize.width /
+  // canvasWidth, the same value Canvas computes). The swatch snap threshold is
+  // derived from this so it feels constant on screen regardless of image res.
+  useEffect(() => {
+    if (displaySize && canvasLayout) {
+      scaleRef.current = displaySize.width / canvasLayout.canvasWidth
+    }
+  }, [displaySize, canvasLayout])
+
   useEffect(() => {
     setIsMobile(window.innerWidth < 1024)
+  }, [])
+
+  // Story 3.5 (AC8): Konva rasterizes label Text at render time and does NOT
+  // auto-reflow when a `display: "swap"` webfont (e.g. Caveat) swaps in after the
+  // first paint (FOUT). Force a one-shot stage redraw once all fonts are ready so
+  // canvas labels repaint in the correct font. Cheap, idempotent, fires once.
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts) return
+    let cancelled = false
+    document.fonts.ready.then(() => {
+      if (cancelled) return
+      stageRef.current?.getLayers().forEach((l) => l.batchDraw())
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -336,25 +398,56 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     []
   )
 
+  // Set the swatch's absolute (swatchX, swatchY) live during the drag. The first
+  // move detaches the swatch from the edge layout; the coords arrive already
+  // clamped to the canvas by the swatch's dragBoundFunc. Story 5.2: apply
+  // CAD-style soft snapping to the clamped coords, surface alignment guides, and
+  // return the snapped position so the Konva node moves there live.
   const handleSwatchDragMove = useCallback(
-    (id: string, canvasX: number, canvasY: number) => {
+    (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
       const layout = canvasLayoutRef.current
-      if (!layout) return
+      if (!layout) {
+        setPoints((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, swatchX: canvasX, swatchY: canvasY } : p))
+        )
+        return { x: canvasX, y: canvasY }
+      }
       const r = styleRef.current.swatchRadius
-      setPoints((prev) => {
-        const p = prev.find((pt) => pt.id === id)
-        if (!p || p.swatchOrder === null) return prev
-        const side = p.swatchSide as "left" | "right" | "top" | "bottom"
-        const isVertical = side === "left" || side === "right"
-        const edgeLength = isVertical ? layout.canvasHeight : layout.canvasWidth
-        const raw = isVertical ? canvasY : canvasX
-        const newOrder = Math.max(r, Math.min(edgeLength - r, Math.round(raw)))
-        return prev.map((pt) => pt.id === id ? { ...pt, swatchOrder: newOrder } : pt)
+      const current = pointsRef.current
+      const dragged = current.find((p) => p.id === id)
+      const marker = dragged
+        ? { x: dragged.x, y: dragged.y + layout.imageOffsetY }
+        : { x: canvasX, y: canvasY }
+      // Rendered centers of every OTHER swatch (edge or free), as snap targets.
+      // Free-floating requires BOTH coords set (matches getSwatchPos's free branch).
+      const others = current
+        .filter((pt) => pt.id !== id && (pt.swatchOrder !== null || (pt.swatchX !== null && pt.swatchY !== null)))
+        .map((pt) => getSwatchPos(pt, layout.canvasWidth, layout.canvasHeight, r))
+
+      const snapped = computeSwatchSnap({
+        others,
+        marker,
+        x: canvasX,
+        y: canvasY,
+        swatchRadius: r,
+        canvasWidth: layout.canvasWidth,
+        canvasHeight: layout.canvasHeight,
+        threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
       })
+
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, swatchX: snapped.x, swatchY: snapped.y } : p))
+      )
+      setSnapGuides(snapped.guides)
+      setDistribution(snapped.distribution)
+      return { x: snapped.x, y: snapped.y }
     },
     []
   )
 
+  // On drop, block overlap (AC4): settle the dragged swatch at the nearest spot
+  // that doesn't overlap any other swatch, never moving a neighbour. Returns the
+  // resolved canvas position so the Konva node snaps to it.
   const handleSwatchDragEnd = useCallback(
     (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
       const layout = canvasLayoutRef.current
@@ -362,28 +455,24 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       const r = styleRef.current.swatchRadius
 
       const current = pointsRef.current
-      const p = current.find((pt) => pt.id === id)
-      if (!p || p.swatchOrder === null) return { x: canvasX, y: canvasY }
+      // Rendered centers of every OTHER swatch (edge or free), for overlap-blocking.
+      // Free-floating requires BOTH coords set (matches getSwatchPos's free branch).
+      const others = current
+        .filter((pt) => pt.id !== id && (pt.swatchOrder !== null || (pt.swatchX !== null && pt.swatchY !== null)))
+        .map((pt) => getSwatchPos(pt, layout.canvasWidth, layout.canvasHeight, r))
 
-      const side = p.swatchSide as "left" | "right" | "top" | "bottom"
-      const isVertical = side === "left" || side === "right"
-      const edgeLength = isVertical ? layout.canvasHeight : layout.canvasWidth
-      const raw = isVertical ? canvasY : canvasX
-      const newOrder = Math.max(r, Math.min(edgeLength - r, Math.round(raw)))
-      const withMoved = current.map((pt) => pt.id === id ? { ...pt, swatchOrder: newOrder } : pt)
-      // Keep the dropped position unless it would overlap a neighbour on this
-      // edge, in which case redistribute evenly (preserving relative order).
-      const placed = placeSwatchOnEdge(
-        withMoved, id, side, layout.canvasWidth, layout.canvasHeight, r
+      const resolved = resolveSwatchOverlap(
+        others, canvasX, canvasY, r, layout.canvasWidth, layout.canvasHeight
       )
 
-      setPoints(placed)
-
-      const final = placed.find((pt) => pt.id === id)!
-      return {
-        x: isVertical ? (side === "left" ? r : layout.canvasWidth - r) : final.swatchOrder!,
-        y: isVertical ? final.swatchOrder! : (side === "top" ? r : layout.canvasHeight - r),
-      }
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, swatchX: resolved.x, swatchY: resolved.y } : p))
+      )
+      // Story 5.2/5.3: guides and the distribution cues are ephemeral — clear them
+      // when the drag ends.
+      setSnapGuides([])
+      setDistribution([])
+      return resolved
     },
     []
   )
@@ -517,6 +606,13 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       )
     }
 
+    // Story 3.5 (AC8): ensure webfonts (e.g. Caveat) have swapped in before
+    // capturing, so exported labels never rasterize in the fallback font. Guard
+    // for jsdom, where document.fonts may be absent.
+    if (typeof document !== "undefined" && document.fonts) {
+      await document.fonts.ready
+    }
+
     const dataUrl = stage.toDataURL({ pixelRatio })
     const res = await fetch("/api/export", {
       method: "POST",
@@ -535,23 +631,6 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   const handleDeselect = useCallback(() => {
     setSelectedPointId(null)
   }, [])
-
-  const handleSetSide = useCallback(
-    (id: string, side: EyedropperPoint["swatchSide"]) => {
-      const layout = canvasLayoutRef.current
-      setPoints((prev) => {
-        const updated = prev.map((p) => (p.id === id ? { ...p, swatchSide: side } : p))
-        if (!layout) return updated
-        return assignSwatchLayout(
-          updated,
-          layout.canvasWidth,
-          layout.canvasHeight,
-          layout.imageOffsetY
-        )
-      })
-    },
-    []
-  )
 
   // Close the context menu on any outside mousedown or Escape.
   useEffect(() => {
@@ -711,7 +790,11 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             points={points}
             style={style}
             interactionMode={interactionMode}
+            pencilTexture={pencilTexture}
+            borderTexture={borderTexture}
             labelEditMode={labelEditMode}
+            snapGuides={snapGuides}
+            distribution={distribution}
             onMarkerDragMove={handleMarkerDragMove}
             onMarkerDragEnd={handleMarkerDragEnd}
             onSwatchDragMove={handleSwatchDragMove}
@@ -744,8 +827,6 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           <PointPanel
             pointNumber={selectedNumber}
             color={selectedPoint.color}
-            swatchSide={selectedPoint.swatchSide}
-            onSetSide={(side) => handleSetSide(selectedPoint.id, side)}
             onRemove={() => handleRemovePoint(selectedPoint.id)}
           />
         )}

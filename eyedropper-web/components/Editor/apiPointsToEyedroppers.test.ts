@@ -44,6 +44,9 @@ describe("apiPointsToEyedroppers", () => {
     const [p] = apiPointsToEyedroppers([{ x: 5, y: 7, color: "#ff0000" }])
     expect(p.swatchSide).toBe("auto")
     expect(p.swatchOrder).toBeNull()
+    // Story 5.1: new points start edge-laid-out (not detached) → free coords null.
+    expect(p.swatchX).toBeNull()
+    expect(p.swatchY).toBeNull()
     expect(p.label.x).toBe(5)
     expect(p.label.y).toBe(7)
     expect(p.label.text).toBe("")
@@ -111,6 +114,8 @@ describe("claudePointsToEyedroppers", () => {
     const [p] = claudePointsToEyedroppers([{ x: 5, y: 7, description: "test" }])
     expect(p.swatchSide).toBe("auto")
     expect(p.swatchOrder).toBeNull()
+    expect(p.swatchX).toBeNull()
+    expect(p.swatchY).toBeNull()
     expect(p.label.x).toBe(5)
     expect(p.label.y).toBe(7)
     expect(p.label.visible).toBe(true)

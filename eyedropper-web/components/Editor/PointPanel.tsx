@@ -1,18 +1,12 @@
 "use client"
 
-import type { EyedropperPoint } from "@/lib/types"
-
-const SIDES: EyedropperPoint["swatchSide"][] = ["auto", "left", "right", "top", "bottom"]
-
 interface Props {
   pointNumber: number
   color: string
-  swatchSide: EyedropperPoint["swatchSide"]
-  onSetSide: (side: EyedropperPoint["swatchSide"]) => void
   onRemove: () => void
 }
 
-export default function PointPanel({ pointNumber, color, swatchSide, onSetSide, onRemove }: Props) {
+export default function PointPanel({ pointNumber, color, onRemove }: Props) {
   return (
     <section data-testid="point-panel">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
@@ -26,26 +20,6 @@ export default function PointPanel({ pointNumber, color, swatchSide, onSetSide, 
           style={{ backgroundColor: color }}
         />
         <span className="text-xs text-[var(--color-text-primary)] font-mono">{color}</span>
-      </div>
-
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
-        Swatch side
-      </p>
-      <div className="flex flex-wrap gap-1 mb-3">
-        {SIDES.map((side) => (
-          <button
-            key={side}
-            onClick={() => onSetSide(side)}
-            aria-pressed={swatchSide === side}
-            className={`text-xs px-2 py-1 rounded border transition-colors ${
-              swatchSide === side
-                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
-                : "border-[var(--color-border)] bg-white hover:border-[var(--color-accent)]"
-            }`}
-          >
-            {side}
-          </button>
-        ))}
       </div>
 
       <button

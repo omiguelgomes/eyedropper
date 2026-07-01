@@ -7,9 +7,12 @@ import type { KonvaEventObject } from "konva/lib/Node"
 import type { CanvasLayout } from "@/lib/canvas-to-916"
 import type { EyedropperPoint } from "@/lib/types"
 import type { Style } from "@/lib/styles"
+import type { SnapGuide, DistributionGuide } from "@/lib/swatch-layout"
 import EyedropperLayer from "./EyedropperLayer"
 import LabelLayer from "./LabelLayer"
 import LabelEditOverlay from "./LabelEditOverlay"
+import SnapGuideLayer from "./SnapGuideLayer"
+import DistributionGuideLayer from "./DistributionGuideLayer"
 
 interface CanvasProps {
   image: HTMLImageElement
@@ -23,9 +26,13 @@ interface CanvasProps {
   style: Style
   interactionMode: "select" | "add"
   labelEditMode: boolean
+  snapGuides: SnapGuide[]
+  distribution: DistributionGuide[]
+  pencilTexture: HTMLImageElement | null
+  borderTexture: HTMLImageElement | null
   onMarkerDragMove: (id: string, canvasX: number, canvasY: number) => void
   onMarkerDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
-  onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => void
+  onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onSwatchDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onAddPoint: (canvasX: number, canvasY: number) => void
   onRequestRemove: (id: string, clientX: number, clientY: number) => void
@@ -47,6 +54,10 @@ export default function Canvas({
   style,
   interactionMode,
   labelEditMode,
+  snapGuides,
+  distribution,
+  pencilTexture,
+  borderTexture,
   onMarkerDragMove,
   onMarkerDragEnd,
   onSwatchDragMove,
@@ -127,6 +138,8 @@ export default function Canvas({
         canvasHeight={canvasLayout.canvasHeight}
         style={style}
         interactionMode={interactionMode}
+        pencilTexture={pencilTexture}
+        borderTexture={borderTexture}
         onMarkerDragMove={onMarkerDragMove}
         onMarkerDragEnd={onMarkerDragEnd}
         onSwatchDragMove={onSwatchDragMove}
@@ -134,6 +147,17 @@ export default function Canvas({
         onRequestRemove={onRequestRemove}
         onSelectPoint={onSelectPoint}
       />
+      {/* Guides above swatches (CAD convention); empty array renders nothing. */}
+      <SnapGuideLayer
+        guides={snapGuides}
+        canvasWidth={canvasLayout.canvasWidth}
+        canvasHeight={canvasLayout.canvasHeight}
+        scale={scale}
+      />
+      {/* Equal-interval gap badges (Story 5.3); null renders nothing. The
+          alignment line (SnapGuideLayer) and the badges are complementary:
+          line = "aligned axis", badges = "equal gaps". */}
+      <DistributionGuideLayer distribution={distribution} scale={scale} />
       {!labelEditMode && (
         <LabelLayer
           points={points}

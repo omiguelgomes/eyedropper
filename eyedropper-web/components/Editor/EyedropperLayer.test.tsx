@@ -32,7 +32,80 @@ vi.mock("react-konva", async (importOriginal) => {
   return {
     ...actual,
     Layer: ({ children }: { children?: React.ReactNode }) => <div data-testid="layer">{children}</div>,
-    Group: ({ children }: { children?: React.ReactNode }) => <div data-testid="group">{children}</div>,
+    // The textured swatch (pastel) is a Group carrying the drag/select/remove
+    // handlers. Mirror the Circle mock's event wiring so those handlers can be
+    // asserted; the outer per-point wrapper Group has no handlers and just
+    // renders its children. dragBoundFunc is recorded like the Circle path.
+    Group: ({
+      children, x, y, draggable, dragBoundFunc,
+      onDragMove, onDragEnd, onMouseEnter, onMouseLeave, onContextMenu, onClick,
+    }: {
+      children?: React.ReactNode
+      x?: number; y?: number; draggable?: boolean
+      dragBoundFunc?: DragBoundFunc
+      onDragMove?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
+      onDragEnd?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
+      onMouseEnter?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
+      onMouseLeave?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
+      onContextMenu?: (e: { evt: { preventDefault: () => void; clientX: number; clientY: number } }) => void
+      onClick?: (e: { evt: { button: number }; cancelBubble: boolean }) => void
+    }) => {
+      // Only the textured swatch Group sets interaction props; leave the plain
+      // wrapper Group as a bare container.
+      const isInteractive = draggable !== undefined || onClick !== undefined || onContextMenu !== undefined
+      if (!isInteractive) return <div data-testid="group">{children}</div>
+      if (dragBoundFunc) lastDragBoundFunc.fn = dragBoundFunc
+      const makeMouseEvent = () => ({ target: { getStage: () => ({ container: () => stageContainer }) } })
+      const gx = x ?? 0
+      const gy = y ?? 0
+      return (
+        <div
+          data-testid="swatch-group"
+          data-x={gx} data-y={gy}
+          data-draggable={draggable === true ? "true" : "false"}
+          data-has-hover={onMouseEnter ? "true" : "false"}
+          data-has-click={onClick ? "true" : "false"}
+          onClick={() => {
+            const evt = { evt: { button: 0 }, cancelBubble: false }
+            lastClickEvent.evt = evt
+            onClick?.(evt)
+          }}
+          onMouseDown={() => {
+            onDragMove?.({
+              target: {
+                x: (v?: number) => { if (v !== undefined) { lastSetPos.x = v; return } return gx + 10 },
+                y: (v?: number) => { if (v !== undefined) { lastSetPos.y = v; return } return gy + 10 },
+              },
+            })
+          }}
+          onMouseUp={() => {
+            onDragEnd?.({
+              target: {
+                x: (v?: number) => { if (v !== undefined) { lastSetPos.x = v; return } return gx + 10 },
+                y: (v?: number) => { if (v !== undefined) { lastSetPos.y = v; return } return gy + 10 },
+              },
+            })
+          }}
+          onMouseEnter={() => onMouseEnter?.(makeMouseEvent())}
+          onMouseLeave={() => onMouseLeave?.(makeMouseEvent())}
+          onContextMenu={(domEvt) => {
+            domEvt.preventDefault()
+            onContextMenu?.({
+              evt: { preventDefault: lastContextMenu.preventDefault, clientX: 123, clientY: 456 },
+            })
+          }}
+        >
+          {children}
+        </div>
+      )
+    },
+    Image: ({ image, globalCompositeOperation }: { image?: HTMLImageElement; globalCompositeOperation?: string }) => (
+      <div
+        data-testid="konva-image"
+        data-image={image ? "loaded" : "none"}
+        data-gco={globalCompositeOperation ?? ""}
+      />
+    ),
     Circle: ({
       x, y, radius, fill, stroke, draggable, dragBoundFunc,
       onDragMove, onDragEnd, onMouseEnter, onMouseLeave, onContextMenu, onClick,
@@ -40,7 +113,7 @@ vi.mock("react-konva", async (importOriginal) => {
       x: number; y: number; radius?: number; fill?: string; stroke?: string
       draggable?: boolean
       dragBoundFunc?: DragBoundFunc
-      onDragMove?: (e: { target: { x: () => number; y: () => number } }) => void
+      onDragMove?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onDragEnd?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onMouseEnter?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
       onMouseLeave?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
@@ -62,7 +135,18 @@ vi.mock("react-konva", async (importOriginal) => {
             onClick?.(evt)
           }}
           onMouseDown={() => {
-            onDragMove?.({ target: { x: () => x + 10, y: () => y + 10 } })
+            onDragMove?.({
+              target: {
+                x: (v?: number) => {
+                  if (v !== undefined) { lastSetPos.x = v; return }
+                  return x + 10
+                },
+                y: (v?: number) => {
+                  if (v !== undefined) { lastSetPos.y = v; return }
+                  return y + 10
+                },
+              },
+            })
           }}
           onMouseUp={() => {
             onDragEnd?.({
@@ -95,9 +179,13 @@ vi.mock("react-konva", async (importOriginal) => {
   }
 })
 
-import EyedropperLayer from "./EyedropperLayer"
+import EyedropperLayer, { getSwatchPos } from "./EyedropperLayer"
 
 const defaultStyle = loadStyles()[0]
+
+const pastelStyle = loadStyles().find((s) => s.name === "pastel")!
+// A minimal stand-in for a decoded texture; the mocked Konva Image only checks truthiness.
+const fakeTexture = {} as HTMLImageElement
 
 const DEFAULT_PROPS = {
   imageOffsetY: 100,
@@ -105,9 +193,12 @@ const DEFAULT_PROPS = {
   canvasHeight: 800,
   style: defaultStyle,
   interactionMode: "select" as const,
+  // Null by default → every existing test stays on the flat Circle path.
+  pencilTexture: null as HTMLImageElement | null,
+  borderTexture: null as HTMLImageElement | null,
   onMarkerDragMove: vi.fn(),
   onMarkerDragEnd: vi.fn(() => ({ x: 0, y: 0 })),
-  onSwatchDragMove: vi.fn(),
+  onSwatchDragMove: vi.fn(() => ({ x: 0, y: 0 })),
   onSwatchDragEnd: vi.fn(() => ({ x: 0, y: 0 })),
   onRequestRemove: vi.fn(),
   onSelectPoint: vi.fn(),
@@ -119,7 +210,9 @@ function makePoint(
   y: number,
   color: string,
   swatchSide: EyedropperPoint["swatchSide"] = "left",
-  swatchOrder: number | null = 200
+  swatchOrder: number | null = 200,
+  swatchX: number | null = null,
+  swatchY: number | null = null
 ): EyedropperPoint {
   return {
     id,
@@ -128,6 +221,8 @@ function makePoint(
     color,
     swatchSide,
     swatchOrder,
+    swatchX,
+    swatchY,
     label: { text: "", visible: true, x, y, fontSize: 16, fontFamily: "serif", color: "#000" },
   }
 }
@@ -411,6 +506,26 @@ describe("EyedropperLayer", () => {
     expect(onSwatchDragMove).toHaveBeenCalledWith("p1", r + 10, 310)
   })
 
+  it("swatch onDragMove snaps the Konva node to the position returned by onSwatchDragMove (Story 5.2)", () => {
+    // Mirrors the onDragEnd snap-back: the handler returns the aligned position
+    // and the component writes it back onto the node live during the drag.
+    const onSwatchDragMove = vi.fn(() => ({ x: 60, y: 250 }))
+    const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+    const { getAllByTestId } = render(
+      <EyedropperLayer
+        points={points}
+        {...DEFAULT_PROPS}
+        interactionMode="select"
+        onSwatchDragMove={onSwatchDragMove}
+      />
+    )
+    lastSetPos.x = null
+    lastSetPos.y = null
+    const swatch = getAllByTestId("circle")[0]
+    fireEvent.mouseDown(swatch)
+    expect(lastSetPos).toEqual({ x: 60, y: 250 })
+  })
+
   it("onDragEnd on swatch circle calls onSwatchDragEnd with (id, x, y)", () => {
     const onSwatchDragEnd = vi.fn(() => ({ x: 0, y: 0 }))
     const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
@@ -448,22 +563,55 @@ describe("EyedropperLayer", () => {
     expect(lastSetPos).toEqual({ x: 55, y: 200 })
   })
 
-  it("swatch dragBoundFunc clamps in absolute (scaled) space, not canvas space", () => {
+  it("swatch dragBoundFunc clamps to 2D canvas bounds in absolute (scaled) space (Story 5.1)", () => {
     // Konva calls dragBoundFunc with absolute stage-pixel coords and applies the
     // result via setAbsolutePosition, so bounds must be scaled by the stage scale.
+    // Story 5.1: the swatch is freely draggable in 2D (no longer edge-locked).
     const r = defaultStyle.swatchRadius
     const scale = 0.5
+    const w = DEFAULT_PROPS.canvasWidth * scale
+    const h = DEFAULT_PROPS.canvasHeight * scale
     // `this` inside dragBoundFunc is the Konva node; this.getStage() → the stage.
     const node: FakeNode = { getStage: () => ({ scaleX: () => scale }) }
     const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
     render(<EyedropperLayer points={points} {...DEFAULT_PROPS} interactionMode="select" />)
     // The swatch is the only Circle that sets a dragBoundFunc.
     const bound = lastDragBoundFunc.fn!
-    // Left edge: x must pin to r*scale (absolute), NOT r (canvas-space).
-    const result = bound.call(node, { x: 9999, y: 50 })
-    expect(result.x).toBe(r * scale)
-    // y clamped to [r*scale, (canvasHeight - r)*scale]; 50 is above the lower bound.
-    expect(result.y).toBe(Math.max(r * scale, Math.min((DEFAULT_PROPS.canvasHeight - r) * scale, 50)))
+    // Both axes clamp independently to [r*scale, dim*scale - r*scale].
+    const overflow = bound.call(node, { x: 9999, y: 9999 })
+    expect(overflow.x).toBe(w - r * scale)
+    expect(overflow.y).toBe(h - r * scale)
+    const underflow = bound.call(node, { x: -50, y: -50 })
+    expect(underflow.x).toBe(r * scale)
+    expect(underflow.y).toBe(r * scale)
+    // In-bounds position passes through untouched (free 2D placement).
+    const inside = bound.call(node, { x: 100, y: 120 })
+    expect(inside).toEqual({ x: 100, y: 120 })
+  })
+
+  it("getSwatchPos returns (swatchX, swatchY) when both set, edge position when null (Story 5.1)", () => {
+    const r = defaultStyle.swatchRadius
+    const W = 1080
+    const H = 1920
+    // Free-floating: absolute coords override the edge layout.
+    const free = makePoint("f", 0, 0, "#fff", "left", 300, 777, 888)
+    expect(getSwatchPos(free, W, H, r)).toEqual({ x: 777, y: 888 })
+    // Not detached (swatchX/Y null): falls through to the edge switch.
+    const edge = makePoint("e", 0, 0, "#fff", "left", 300)
+    expect(getSwatchPos(edge, W, H, r)).toEqual({ x: r, y: 300 })
+    const right = makePoint("rt", 0, 0, "#fff", "right", 300)
+    expect(getSwatchPos(right, W, H, r)).toEqual({ x: W - r, y: 300 })
+  })
+
+  it("renders a detached free swatch even when swatchOrder is null (Story 5.1)", () => {
+    // A free-floating swatch (swatchX/Y set) must still render despite a null order.
+    const points = [makePoint("p1", 100, 200, "#ff0000", "auto", null, 400, 600)]
+    const { getAllByTestId } = render(<EyedropperLayer points={points} {...DEFAULT_PROPS} />)
+    const circles = getAllByTestId("circle")
+    // swatch + ring marker = 2 circles; the swatch sits at the free coords.
+    expect(circles).toHaveLength(2)
+    expect(circles[0].getAttribute("data-x")).toBe("400")
+    expect(circles[0].getAttribute("data-y")).toBe("600")
   })
 
   it("right-click on swatch calls onRequestRemove with (id, clientX, clientY) (AC4)", () => {
@@ -564,5 +712,141 @@ describe("EyedropperLayer", () => {
     for (const circle of getAllByTestId("circle")) {
       expect(circle.getAttribute("data-has-click")).toBe("true")
     }
+  })
+
+  describe("pastel textured swatch (Story 3.5)", () => {
+    it("flat style renders the swatch as a fill+stroke Circle, no texture Images (AC4)", () => {
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getAllByTestId, queryAllByTestId } = render(
+        <EyedropperLayer points={points} {...DEFAULT_PROPS} style={defaultStyle} />
+      )
+      const swatch = getAllByTestId("circle")[0]
+      expect(swatch.getAttribute("data-fill")).toBe("#aabbcc")
+      expect(swatch.getAttribute("data-stroke")).toBe(defaultStyle.swatchBorderColor)
+      expect(queryAllByTestId("konva-image")).toHaveLength(0)
+      expect(queryAllByTestId("swatch-group")).toHaveLength(0)
+    })
+
+    it("pastel style with both textures renders disc + pencil(multiply) + destination-in clip + border (AC3)", () => {
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={fakeTexture}
+        />
+      )
+      // Disc Circle filled with the point's sampled color (no border stroke — the
+      // ring is the border texture image, not a crisp stroke).
+      const discs = getAllByTestId("circle").filter((c) => c.getAttribute("data-fill") === "#aabbcc")
+      expect(discs.length).toBeGreaterThan(0)
+      // Two pencil images (multiply + destination-in) and one border image (over).
+      const images = getAllByTestId("konva-image")
+      const gcos = images.map((i) => i.getAttribute("data-gco"))
+      expect(gcos).toContain("multiply")
+      expect(gcos).toContain("destination-in")
+      // Border image is drawn as-is (no composite op).
+      expect(gcos.filter((g) => g === "")).toHaveLength(1)
+      // The textured swatch is a Group, not a flat swatch Circle.
+      expect(getAllByTestId("swatch-group")).toHaveLength(1)
+    })
+
+    it("pastel style but a texture still null → falls back to the flat Circle, no crash", () => {
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getAllByTestId, queryAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={null}
+        />
+      )
+      // No texture images; swatch is the flat Circle fallback.
+      expect(queryAllByTestId("konva-image")).toHaveLength(0)
+      expect(queryAllByTestId("swatch-group")).toHaveLength(0)
+      expect(getAllByTestId("circle")[0].getAttribute("data-fill")).toBe("#aabbcc")
+    })
+
+    it("textured swatch stays draggable and selectable in select mode (AC5)", () => {
+      const onSelectPoint = vi.fn()
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={fakeTexture}
+          interactionMode="select"
+          onSelectPoint={onSelectPoint}
+        />
+      )
+      const group = getByTestId("swatch-group")
+      expect(group.getAttribute("data-draggable")).toBe("true")
+      expect(group.getAttribute("data-has-click")).toBe("true")
+      expect(group.getAttribute("data-has-hover")).toBe("true")
+      fireEvent.click(group)
+      expect(onSelectPoint).toHaveBeenCalledWith("p1")
+      expect(lastClickEvent.evt?.cancelBubble).toBe(true)
+    })
+
+    it("textured swatch is not draggable and has no click in add mode (AC5)", () => {
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={fakeTexture}
+          interactionMode="add"
+        />
+      )
+      const group = getByTestId("swatch-group")
+      expect(group.getAttribute("data-draggable")).toBe("false")
+      expect(group.getAttribute("data-has-click")).toBe("false")
+    })
+
+    it("right-click on the textured swatch calls onRequestRemove and preventDefault (AC5)", () => {
+      const onRequestRemove = vi.fn()
+      lastContextMenu.preventDefault.mockClear()
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={fakeTexture}
+          onRequestRemove={onRequestRemove}
+        />
+      )
+      fireEvent.contextMenu(getByTestId("swatch-group"))
+      expect(onRequestRemove).toHaveBeenCalledWith("p1", 123, 456)
+      expect(lastContextMenu.preventDefault).toHaveBeenCalled()
+    })
+
+    it("textured swatch drag writes back the snapped position from onSwatchDragEnd (AC5)", () => {
+      const onSwatchDragEnd = vi.fn(() => ({ x: 55, y: 210 }))
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelStyle}
+          pencilTexture={fakeTexture}
+          borderTexture={fakeTexture}
+          interactionMode="select"
+          onSwatchDragEnd={onSwatchDragEnd}
+        />
+      )
+      lastSetPos.x = null
+      lastSetPos.y = null
+      fireEvent.mouseUp(getByTestId("swatch-group"))
+      expect(lastSetPos).toEqual({ x: 55, y: 210 })
+    })
   })
 })

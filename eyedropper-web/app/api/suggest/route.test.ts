@@ -2,11 +2,12 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest"
 import { EventEmitter } from "events"
 
 // vi.hoisted ensures all mock references are available in vi.mock factories (which are hoisted)
-const { mockSpawn, mockReadFile, mockSharpMeta, mockCreate } = vi.hoisted(() => ({
+const { mockSpawn, mockReadFile, mockSharpMeta, mockCreate, mockUtimesSync } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
   mockReadFile: vi.fn(),
   mockSharpMeta: vi.fn(),
   mockCreate: vi.fn(),
+  mockUtimesSync: vi.fn(),
 }))
 
 vi.mock("child_process", () => ({
@@ -18,9 +19,11 @@ vi.mock("fs", () => ({
   default: {
     promises: { readFile: mockReadFile },
     existsSync: vi.fn(() => false),
+    utimesSync: mockUtimesSync,
   },
   promises: { readFile: mockReadFile },
   existsSync: vi.fn(() => false),
+  utimesSync: mockUtimesSync,
 }))
 
 vi.mock("sharp", () => ({
@@ -103,6 +106,31 @@ describe("POST /api/suggest", () => {
 
     expect(res.status).toBe(200)
     expect(json.points).toEqual(mockPoints)
+  })
+
+  it("touches the upload dir mtime before running slic (idle TTL for cleanup cron)", async () => {
+    mockSpawn.mockImplementation(() => makeMockProc(JSON.stringify([{ x: 1, y: 2, color: "#abc" }]), 0))
+    const { POST } = await import("./route")
+    const id = "12345678-1234-1234-1234-123456789abc"
+    const req = new Request("http://localhost/api/suggest", {
+      method: "POST",
+      body: JSON.stringify({ id, method: "slic" }),
+      headers: { "Content-Type": "application/json" },
+    })
+    await POST(req as any)
+    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${id}`, expect.any(Date), expect.any(Date))
+  })
+
+  it("touches the upload dir mtime on the claude path too", async () => {
+    const { POST } = await import("./route")
+    const id = "12345678-1234-1234-1234-123456789abc"
+    const req = new Request("http://localhost/api/suggest", {
+      method: "POST",
+      body: JSON.stringify({ id, method: "claude" }),
+      headers: { "Content-Type": "application/json" },
+    })
+    await POST(req as any)
+    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${id}`, expect.any(Date), expect.any(Date))
   })
 
   it("calls spawn with python3 and correct image path", async () => {
