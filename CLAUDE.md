@@ -28,23 +28,18 @@ npx vitest run lib/swatch-layout.test.ts   # Run a single test file
 npx vitest run -t "no crossing"            # Run tests matching a name
 ```
 
-Python SLIC needs a venv at `scripts/.venv` (the `/api/suggest` route auto-detects `scripts/.venv/bin/python3`, else falls back to system `python3`):
-
-```bash
-cd eyedropper-web/scripts
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # numpy, scikit-image, Pillow
-```
+SLIC runs in-process as a TypeScript port (`lib/slic-suggest.ts`) — no Python needed, so it works in Vercel's Node serverless runtime. `docs/slic_suggest.py` and `scripts/slic_suggest.py` remain as the reference implementation the port mirrors.
 
 ## Architecture
 
-Next.js 15 App Router · Konva.js + react-konva · Tailwind v4 · Sharp · Python SLIC · Anthropic SDK (optional). React 19. Tests: Vitest + jsdom + Testing Library; `@/` aliases the `eyedropper-web/` root (see `vitest.config.ts`). Test files sit next to the code they cover (`*.test.ts(x)`).
+Next.js 15 App Router · Konva.js + react-konva · Tailwind v4 · Sharp · in-process JS SLIC · Anthropic SDK (optional). React 19. Tests: Vitest + jsdom + Testing Library; `@/` aliases the `eyedropper-web/` root (see `vitest.config.ts`). Test files sit next to the code they cover (`*.test.ts(x)`).
 
 ### Two pages, five API routes
 
 - `app/page.tsx` — upload page (`Upload.tsx` drag-and-drop).
 - `app/editor/page.tsx` — server component; reads `?id=`, computes `claudeAvailable = !!process.env.ANTHROPIC_API_KEY` server-side, passes it to the `Editor` client shell. This is how the UI knows whether to show the Claude button without leaking the key.
 - `app/api/upload/route.ts` — POST multipart; Sharp re-encodes to JPEG q95 at `/tmp/<uuid>/original.jpg`; returns `{ id, width, height }`. 50MB body cap.
-- `app/api/suggest/route.ts` — POST `{ id, method }`. `method:"slic"` spawns the Python script (`child_process.spawn`, 30s timeout, SIGKILL). `method:"claude"` calls Haiku (`claude-haiku-4-5-20251001`) with the image; returns 503 if no API key. Both return points in **original-image pixel coordinates**.
+- `app/api/suggest/route.ts` — POST `{ id, method }`. `method:"slic"` reads raw RGB via Sharp (downscaled to ≤500px for speed) and runs the in-process `suggestPoints` (`lib/slic-suggest.ts`), scaling results back to original pixels. `method:"claude"` calls Haiku (`claude-haiku-4-5-20251001`) with the image; returns 503 if no API key. Both return points in **original-image pixel coordinates**.
 - `app/api/image/route.ts` — GET `?id=`; serves the stored original for the client to draw onto a hidden canvas for color sampling.
 - `app/api/export/route.ts` — POST `{ dataUrl }`; the client has already rendered the final 9:16 bitmap via Konva `stage.toDataURL({ pixelRatio })`. Sharp **only re-encodes PNG→JPEG q95 — it must never resize/pad/alter dimensions.** Returns a JPEG attachment.
 - `app/api/cleanup/route.ts` — GET, triggered hourly by `vercel.json` cron (`0 * * * *`). Deletes `/tmp/<uuid>` dirs older than 1h **by mtime**. Optional `CRON_SECRET` bearer auth.
