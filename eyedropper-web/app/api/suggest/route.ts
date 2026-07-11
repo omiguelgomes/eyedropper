@@ -1,25 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import fs from "fs"
-import path from "path"
 import Anthropic from "@anthropic-ai/sdk"
 import sharp from "sharp"
 import { suggestPoints } from "@/lib/slic-suggest"
+import { getUploadBuffer } from "@/lib/blob-store"
 
 // SLIC runs in-process (Vercel's Node runtime has no python3). Segmenting a
 // full-res JPEG in JS is slow, so we downscale to this max dimension, run SLIC,
 // then scale the resulting points back to original-image pixel coordinates.
 const SLIC_MAX_DIM = 500
-
-// Bump the upload dir's mtime so the cleanup cron treats time-since-last-access,
-// not time-since-upload, as the idle TTL (see cleanup/route.ts). Non-fatal.
-function touchDir(id: string) {
-  try {
-    const nowDate = new Date()
-    fs.utimesSync(path.join("/tmp", id), nowDate, nowDate)
-  } catch {
-    // ignore — a missing/racing dir will surface as a read failure downstream
-  }
-}
 
 // Reused across requests; only constructed once a Claude call is made (after the
 // API-key guard), so the keyless case never instantiates it.
@@ -53,13 +41,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Claude not available" }, { status: 503 })
     }
 
-    const imagePath = path.join("/tmp", id, "original.jpg")
     let buffer: Buffer
     let imageWidth: number
     let imageHeight: number
     try {
-      touchDir(id)
-      buffer = await fs.promises.readFile(imagePath)
+      const stored = await getUploadBuffer(id)
+      if (!stored) throw new Error("Upload not found")
+      buffer = stored
       const meta = await sharp(buffer).metadata()
       imageWidth = meta.width!
       imageHeight = meta.height!
@@ -121,11 +109,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown method" }, { status: 400 })
   }
 
-  touchDir(id)
-  const imagePath = path.join("/tmp", id, "original.jpg")
-
   try {
-    const buffer = await fs.promises.readFile(imagePath)
+    const buffer = await getUploadBuffer(id)
+    if (!buffer) {
+      console.error("SLIC failed: upload not found for", id)
+      return NextResponse.json({ error: "SLIC failed" }, { status: 500 })
+    }
     const meta = await sharp(buffer).metadata()
     const origW = meta.width!
     const origH = meta.height!

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const mockMkdirSync = vi.fn()
-const mockToFile = vi.fn().mockResolvedValue(undefined)
+const mockPutUpload = vi.fn()
+const mockToBuffer = vi.fn().mockResolvedValue(Buffer.from("jpeg-bytes"))
 const mockMetadata = vi.fn().mockResolvedValue({ width: 800, height: 600 })
 const mockJpeg = vi.fn()
 const mockSharpInstance = { metadata: mockMetadata, jpeg: mockJpeg }
-mockJpeg.mockReturnValue({ toFile: mockToFile })
+mockJpeg.mockReturnValue({ toBuffer: mockToBuffer })
 
-vi.mock("fs", () => ({ default: { mkdirSync: mockMkdirSync } }))
+vi.mock("@/lib/blob-store", () => ({ putUpload: mockPutUpload }))
 vi.mock("sharp", () => ({ default: vi.fn(() => mockSharpInstance) }))
 vi.mock("crypto", () => ({
   default: { randomUUID: vi.fn(() => "test-uuid-1234") },
@@ -26,8 +26,9 @@ describe("POST /api/upload", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockMetadata.mockResolvedValue({ width: 800, height: 600 })
-    mockJpeg.mockReturnValue({ toFile: mockToFile })
-    mockToFile.mockResolvedValue(undefined)
+    mockJpeg.mockReturnValue({ toBuffer: mockToBuffer })
+    mockToBuffer.mockResolvedValue(Buffer.from("jpeg-bytes"))
+    mockPutUpload.mockResolvedValue(undefined)
   })
 
   it("returns 400 when no file provided", async () => {
@@ -49,19 +50,12 @@ describe("POST /api/upload", () => {
     expect(body.height).toBe(600)
   })
 
-  it("creates a directory under /tmp using the uuid", async () => {
-    const { POST } = await import("./route")
-    const file = new File([new ArrayBuffer(100)], "photo.jpg", { type: "image/jpeg" })
-    await POST(makeReq(file))
-    expect(mockMkdirSync).toHaveBeenCalledWith("/tmp/test-uuid-1234", { recursive: true })
-  })
-
-  it("saves the image as original.jpg with quality 95", async () => {
+  it("stores the re-encoded jpeg in blob under the uuid", async () => {
     const { POST } = await import("./route")
     const file = new File([new ArrayBuffer(100)], "photo.png", { type: "image/png" })
     await POST(makeReq(file))
     expect(mockJpeg).toHaveBeenCalledWith({ quality: 95 })
-    expect(mockToFile).toHaveBeenCalledWith("/tmp/test-uuid-1234/original.jpg")
+    expect(mockPutUpload).toHaveBeenCalledWith("test-uuid-1234", expect.any(Buffer))
   })
 
   it("returns 400 when the image cannot be decoded", async () => {

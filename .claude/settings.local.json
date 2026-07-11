@@ -61,7 +61,11 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
       "Bash(eyedropper-web/scripts/.venv/bin/python3 *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__wait_for",
+      "Bash(BLOB_READ_WRITE_TOKEN=dummy rtk npm run build)",
+      "Bash(vercel blob *)"
     ]
   }
 }

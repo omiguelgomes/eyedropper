@@ -1,16 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const mockExistsSync = vi.fn()
-const mockReadFileSync = vi.fn()
-const mockUtimesSync = vi.fn()
+const mockGetUploadBuffer = vi.fn()
 
-vi.mock("fs", () => ({
-  default: {
-    existsSync: mockExistsSync,
-    readFileSync: mockReadFileSync,
-    utimesSync: mockUtimesSync,
-  },
-}))
+vi.mock("@/lib/blob-store", () => ({ getUploadBuffer: mockGetUploadBuffer }))
 
 function makeReq(id: string | null) {
   const url = id !== null
@@ -43,18 +35,16 @@ describe("GET /api/image", () => {
     expect(res.status).toBe(404)
   })
 
-  it("returns 404 when file does not exist", async () => {
-    mockExistsSync.mockReturnValue(false)
+  it("returns 404 when the upload does not exist", async () => {
+    mockGetUploadBuffer.mockResolvedValue(null)
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
     expect(res.status).toBe(404)
   })
 
-  it("returns 200 with image/jpeg content-type when file exists", async () => {
-    const fakeBuffer = Buffer.from("fake-jpeg-data")
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(fakeBuffer)
+  it("returns 200 with image/jpeg content-type when the upload exists", async () => {
+    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-jpeg-data"))
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
@@ -63,45 +53,21 @@ describe("GET /api/image", () => {
   })
 
   it("returns Cache-Control header on success", async () => {
-    const fakeBuffer = Buffer.from("fake-jpeg-data")
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(fakeBuffer)
+    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-jpeg-data"))
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
     expect(res.headers.get("Cache-Control")).toBe("max-age=3600")
   })
 
-  it("returns the file bytes from readFileSync as the body", async () => {
+  it("returns the blob bytes as the body", async () => {
     const fakeBuffer = Buffer.from("fake-jpeg-data")
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(fakeBuffer)
+    mockGetUploadBuffer.mockResolvedValue(fakeBuffer)
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
     const body = Buffer.from(await res.arrayBuffer())
     expect(body.equals(fakeBuffer)).toBe(true)
-    expect(mockReadFileSync).toHaveBeenCalledWith(`/tmp/${validId}/original.jpg`)
-  })
-
-  it("touches the upload dir mtime on access so the cleanup cron uses an idle TTL", async () => {
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(Buffer.from("fake-jpeg-data"))
-    const { GET } = await import("./route")
-    const validId = "550e8400-e29b-41d4-a716-446655440000"
-    await GET(makeReq(validId))
-    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${validId}`, expect.any(Date), expect.any(Date))
-  })
-
-  it("still serves the image if touching the dir mtime throws", async () => {
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue(Buffer.from("fake-jpeg-data"))
-    mockUtimesSync.mockImplementation(() => {
-      throw new Error("ENOENT: raced a delete")
-    })
-    const { GET } = await import("./route")
-    const validId = "550e8400-e29b-41d4-a716-446655440000"
-    const res = await GET(makeReq(validId))
-    expect(res.status).toBe(200)
+    expect(mockGetUploadBuffer).toHaveBeenCalledWith(validId)
   })
 })

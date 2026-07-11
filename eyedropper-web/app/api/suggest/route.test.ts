@@ -1,23 +1,17 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest"
 
 // vi.hoisted ensures all mock references are available in vi.mock factories (which are hoisted)
-const { mockReadFile, mockSharpMeta, mockSharpToBuffer, mockSuggestPoints, mockCreate, mockUtimesSync } =
+const { mockGetUploadBuffer, mockSharpMeta, mockSharpToBuffer, mockSuggestPoints, mockCreate } =
   vi.hoisted(() => ({
-    mockReadFile: vi.fn(),
+    mockGetUploadBuffer: vi.fn(),
     mockSharpMeta: vi.fn(),
     mockSharpToBuffer: vi.fn(),
     mockSuggestPoints: vi.fn(),
     mockCreate: vi.fn(),
-    mockUtimesSync: vi.fn(),
   }))
 
-vi.mock("fs", () => ({
-  default: {
-    promises: { readFile: mockReadFile },
-    utimesSync: mockUtimesSync,
-  },
-  promises: { readFile: mockReadFile },
-  utimesSync: mockUtimesSync,
+vi.mock("@/lib/blob-store", () => ({
+  getUploadBuffer: mockGetUploadBuffer,
 }))
 
 // Sharp is a chainable builder; every transform returns `this`, terminating in
@@ -45,7 +39,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 describe("POST /api/suggest", () => {
   beforeEach(() => {
-    mockReadFile.mockResolvedValue(Buffer.from("fake-image"))
+    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-image"))
     mockSharpMeta.mockResolvedValue({ width: 800, height: 600 })
     // Raw pixel buffer at the downscaled size; content is irrelevant since
     // suggestPoints is mocked. info dimensions drive the coordinate scale-back.
@@ -90,30 +84,6 @@ describe("POST /api/suggest", () => {
     ])
   })
 
-  it("touches the upload dir mtime before running slic (idle TTL for cleanup cron)", async () => {
-    const { POST } = await import("./route")
-    const id = "12345678-1234-1234-1234-123456789abc"
-    const req = new Request("http://localhost/api/suggest", {
-      method: "POST",
-      body: JSON.stringify({ id, method: "slic" }),
-      headers: { "Content-Type": "application/json" },
-    })
-    await POST(req as any)
-    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${id}`, expect.any(Date), expect.any(Date))
-  })
-
-  it("touches the upload dir mtime on the claude path too", async () => {
-    const { POST } = await import("./route")
-    const id = "12345678-1234-1234-1234-123456789abc"
-    const req = new Request("http://localhost/api/suggest", {
-      method: "POST",
-      body: JSON.stringify({ id, method: "claude" }),
-      headers: { "Content-Type": "application/json" },
-    })
-    await POST(req as any)
-    expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${id}`, expect.any(Date), expect.any(Date))
-  })
-
   it("passes the downscaled raw pixels to suggestPoints", async () => {
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -154,8 +124,8 @@ describe("POST /api/suggest", () => {
     expect(res.status).toBe(400)
   })
 
-  it("returns 500 when the image can't be read", async () => {
-    mockReadFile.mockRejectedValue(new Error("ENOENT"))
+  it("returns 500 when the upload is missing (slic)", async () => {
+    mockGetUploadBuffer.mockResolvedValue(null)
 
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -166,6 +136,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(500)
+    expect(mockSuggestPoints).not.toHaveBeenCalled()
   })
 
   it("returns 500 when sharp raw decoding fails", async () => {
@@ -259,8 +230,8 @@ describe("POST /api/suggest", () => {
     expect(res.status).toBe(500)
   })
 
-  it("returns 500 when readFile throws", async () => {
-    mockReadFile.mockRejectedValue(new Error("ENOENT"))
+  it("returns 500 when the upload is missing (claude)", async () => {
+    mockGetUploadBuffer.mockResolvedValue(null)
 
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -271,6 +242,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(500)
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 
   it("returns 500 when Anthropic SDK throws", async () => {

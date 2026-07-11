@@ -38,13 +38,13 @@ Next.js 15 App Router · Konva.js + react-konva · Tailwind v4 · Sharp · in-pr
 
 - `app/page.tsx` — upload page (`Upload.tsx` drag-and-drop).
 - `app/editor/page.tsx` — server component; reads `?id=`, computes `claudeAvailable = !!process.env.ANTHROPIC_API_KEY` server-side, passes it to the `Editor` client shell. This is how the UI knows whether to show the Claude button without leaking the key.
-- `app/api/upload/route.ts` — POST multipart; Sharp re-encodes to JPEG q95 at `/tmp/<uuid>/original.jpg`; returns `{ id, width, height }`. 50MB body cap.
-- `app/api/suggest/route.ts` — POST `{ id, method }`. `method:"slic"` reads raw RGB via Sharp (downscaled to ≤500px for speed) and runs the in-process `suggestPoints` (`lib/slic-suggest.ts`), scaling results back to original pixels. `method:"claude"` calls Haiku (`claude-haiku-4-5-20251001`) with the image; returns 503 if no API key. Both return points in **original-image pixel coordinates**.
-- `app/api/image/route.ts` — GET `?id=`; serves the stored original for the client to draw onto a hidden canvas for color sampling.
+- `app/api/upload/route.ts` — POST multipart; Sharp re-encodes to JPEG q95 and `putUpload`s it to Vercel Blob at `uploads/<uuid>.jpg`; returns `{ id, width, height }`. 50MB body cap.
+- `app/api/suggest/route.ts` — POST `{ id, method }`. Reads the stored JPEG from Blob (`getUploadBuffer`). `method:"slic"` decodes raw RGB via Sharp (downscaled to ≤500px for speed) and runs the in-process `suggestPoints` (`lib/slic-suggest.ts`), scaling results back to original pixels. `method:"claude"` calls Haiku (`claude-haiku-4-5-20251001`) with the image; returns 503 if no API key. Both return points in **original-image pixel coordinates**.
+- `app/api/image/route.ts` — GET `?id=`; fetches the stored JPEG from Blob (`getUploadBuffer`) and proxies the bytes **same-origin** (not a redirect — a cross-origin image would taint the sampling canvas). The client draws it onto a hidden canvas for color sampling.
 - `app/api/export/route.ts` — POST `{ dataUrl }`; the client has already rendered the final 9:16 bitmap via Konva `stage.toDataURL({ pixelRatio })`. Sharp **only re-encodes PNG→JPEG q95 — it must never resize/pad/alter dimensions.** Returns a JPEG attachment.
-- `app/api/cleanup/route.ts` — GET, triggered hourly by `vercel.json` cron (`0 * * * *`). Deletes `/tmp/<uuid>` dirs older than 1h **by mtime**. Optional `CRON_SECRET` bearer auth.
+- `app/api/cleanup/route.ts` — GET, triggered by `vercel.json` cron. Deletes Blob `uploads/*` objects older than 1h **by `uploadedAt`** (`deleteExpiredUploads`). Optional `CRON_SECRET` bearer auth.
 
-**Idle-TTL trick:** `suggest` and `image` routes call `fs.utimesSync` to bump the upload dir's mtime on each access, so cleanup measures time-since-last-*access*, not time-since-upload. Don't remove these touches.
+**Storage:** uploads live in **Vercel Blob** (private access), not `/tmp` — Vercel's `/tmp` is per-Lambda, so an upload written on one instance was invisible to the `image`/`suggest` requests routed to another (the intermittent "image may have expired" bug). `lib/blob-store.ts` is the single access point (`putUpload`, `getUploadBuffer`, `deleteExpiredUploads`). **Auth:** on Vercel it uses OIDC automatically (`VERCEL_OIDC_TOKEN` + `BLOB_STORE_ID`, platform-injected — no token needed). Locally OIDC isn't issued for the `development` environment, so `.env.local` needs a `BLOB_READ_WRITE_TOKEN`, which the helper passes explicitly (an explicit token wins over OIDC).
 
 ### Editor state
 
@@ -66,11 +66,12 @@ Coordinates: points store `x,y` in **original-image space**; labels and free-flo
 2. 9:16 output always — canvas padded with a background color auto-detected from image borders (`detectBorderColor` in `Editor/index.tsx`).
 3. No swatch lines cross — `swatch-layout.ts` must mirror the Python ordering exactly.
 4. Works without an API key — SLIC is always available; Claude is the optional upgrade.
-5. No accounts, no database — uploads ephemeral in `/tmp`, deleted after ~1h idle.
+5. No accounts, no database — uploads ephemeral in Vercel Blob, deleted after ~1h by the cleanup cron.
 
 ## Environment variables
 
 ```
+BLOB_READ_WRITE_TOKEN=...       # Local dev only — Vercel Blob rw token in .env.local (prod uses OIDC)
 ANTHROPIC_API_KEY=sk-ant-...    # Optional — enables Claude suggestions
 CRON_SECRET=...                 # Optional — bearer-protects /api/cleanup
 ```

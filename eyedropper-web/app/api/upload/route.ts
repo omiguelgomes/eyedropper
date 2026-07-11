@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import sharp from "sharp"
-import fs from "fs"
-import path from "path"
 import crypto from "crypto"
+import { putUpload } from "@/lib/blob-store"
 
 // Cap the upload so a large or concurrent request cannot buffer an unbounded
 // body into memory before Sharp ever sees it.
@@ -22,8 +21,6 @@ export async function POST(request: NextRequest) {
   }
 
   const id = crypto.randomUUID()
-  const dir = path.join("/tmp", id)
-  fs.mkdirSync(dir, { recursive: true })
 
   try {
     const buffer = Buffer.from(await (file as File).arrayBuffer())
@@ -34,7 +31,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Could not read image dimensions" }, { status: 400 })
     }
 
-    await image.jpeg({ quality: 95 }).toFile(path.join(dir, "original.jpg"))
+    // Store in Vercel Blob (shared across serverless instances) rather than
+    // /tmp, which is per-instance and unreachable from other invocations.
+    const jpeg = await image.jpeg({ quality: 95 }).toBuffer()
+    await putUpload(id, jpeg)
 
     return NextResponse.json({
       id,
