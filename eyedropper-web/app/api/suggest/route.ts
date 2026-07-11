@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { spawn } from "child_process"
-import fs, { existsSync } from "fs"
+import fs from "fs"
 import path from "path"
 import Anthropic from "@anthropic-ai/sdk"
 import sharp from "sharp"
+import { suggestPoints } from "@/lib/slic-suggest"
 
-const SLIC_TIMEOUT_MS = 30_000
+// SLIC runs in-process (Vercel's Node runtime has no python3). Segmenting a
+// full-res JPEG in JS is slow, so we downscale to this max dimension, run SLIC,
+// then scale the resulting points back to original-image pixel coordinates.
+const SLIC_MAX_DIM = 500
 
 // Bump the upload dir's mtime so the cleanup cron treats time-since-last-access,
 // not time-since-upload, as the idle TTL (see cleanup/route.ts). Non-fatal.
@@ -120,53 +123,47 @@ export async function POST(request: NextRequest) {
 
   touchDir(id)
   const imagePath = path.join("/tmp", id, "original.jpg")
-  const scriptPath = path.join(process.cwd(), "scripts", "slic_suggest.py")
-  const venvPython = path.join(process.cwd(), "scripts", ".venv", "bin", "python3")
-  const pythonBin = existsSync(venvPython) ? venvPython : "python3"
 
-  return new Promise<NextResponse>((resolve) => {
-    const proc = spawn(pythonBin, [scriptPath, imagePath])
+  try {
+    const buffer = await fs.promises.readFile(imagePath)
+    const meta = await sharp(buffer).metadata()
+    const origW = meta.width!
+    const origH = meta.height!
 
-    let stdout = ""
-    let stderr = ""
-    let settled = false
+    // Downscale for speed; SLIC quality is scale-invariant for point placement.
+    const scale = Math.min(1, SLIC_MAX_DIM / Math.max(origW, origH))
+    const { data, info } = await sharp(buffer)
+      .resize({
+        width: Math.max(1, Math.round(origW * scale)),
+        height: Math.max(1, Math.round(origH * scale)),
+        fit: "fill",
+      })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
 
-    const finish = (response: NextResponse) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(response)
-    }
+    // The Python size filter (minSize=200) is area-based at full res, so scale
+    // it by the downscale ratio² to keep the same effective filtering.
+    const minSize = Math.max(1, Math.round(200 * scale * scale))
+    const pts = suggestPoints(
+      { width: info.width, height: info.height, data },
+      12,
+      28.0,
+      minSize
+    )
 
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL")
-      finish(NextResponse.json({ error: "SLIC timed out" }, { status: 500 }))
-    }, SLIC_TIMEOUT_MS)
+    // Map back to original-image pixel coordinates (clients expect these).
+    const sx = origW / info.width
+    const sy = origH / info.height
+    const points = pts.map((p) => ({
+      x: Math.round(p.x * sx),
+      y: Math.round(p.y * sy),
+      color: p.color,
+    }))
 
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString()
-    })
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString()
-    })
-
-    proc.on("close", (code: number | null) => {
-      if (code !== 0) {
-        console.error("SLIC failed:", stderr)
-        finish(NextResponse.json({ error: "SLIC failed" }, { status: 500 }))
-        return
-      }
-      try {
-        const points = JSON.parse(stdout)
-        finish(NextResponse.json({ points }))
-      } catch {
-        finish(NextResponse.json({ error: "Invalid SLIC output" }, { status: 500 }))
-      }
-    })
-
-    proc.on("error", (err: Error) => {
-      console.error("SLIC spawn failed:", err.message)
-      finish(NextResponse.json({ error: "Spawn failed" }, { status: 500 }))
-    })
-  })
+    return NextResponse.json({ points })
+  } catch (err) {
+    console.error("SLIC failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: "SLIC failed" }, { status: 500 })
+  }
 }

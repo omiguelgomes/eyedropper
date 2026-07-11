@@ -1,33 +1,40 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest"
-import { EventEmitter } from "events"
 
 // vi.hoisted ensures all mock references are available in vi.mock factories (which are hoisted)
-const { mockSpawn, mockReadFile, mockSharpMeta, mockCreate, mockUtimesSync } = vi.hoisted(() => ({
-  mockSpawn: vi.fn(),
-  mockReadFile: vi.fn(),
-  mockSharpMeta: vi.fn(),
-  mockCreate: vi.fn(),
-  mockUtimesSync: vi.fn(),
-}))
-
-vi.mock("child_process", () => ({
-  default: { spawn: mockSpawn },
-  spawn: mockSpawn,
-}))
+const { mockReadFile, mockSharpMeta, mockSharpToBuffer, mockSuggestPoints, mockCreate, mockUtimesSync } =
+  vi.hoisted(() => ({
+    mockReadFile: vi.fn(),
+    mockSharpMeta: vi.fn(),
+    mockSharpToBuffer: vi.fn(),
+    mockSuggestPoints: vi.fn(),
+    mockCreate: vi.fn(),
+    mockUtimesSync: vi.fn(),
+  }))
 
 vi.mock("fs", () => ({
   default: {
     promises: { readFile: mockReadFile },
-    existsSync: vi.fn(() => false),
     utimesSync: mockUtimesSync,
   },
   promises: { readFile: mockReadFile },
-  existsSync: vi.fn(() => false),
   utimesSync: mockUtimesSync,
 }))
 
-vi.mock("sharp", () => ({
-  default: vi.fn(() => ({ metadata: mockSharpMeta })),
+// Sharp is a chainable builder; every transform returns `this`, terminating in
+// metadata() (Claude + SLIC) or toBuffer() (SLIC raw pixels).
+vi.mock("sharp", () => {
+  const chain: any = {
+    metadata: mockSharpMeta,
+    resize: vi.fn(() => chain),
+    removeAlpha: vi.fn(() => chain),
+    raw: vi.fn(() => chain),
+    toBuffer: mockSharpToBuffer,
+  }
+  return { default: vi.fn(() => chain) }
+})
+
+vi.mock("@/lib/slic-suggest", () => ({
+  suggestPoints: mockSuggestPoints,
 }))
 
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -36,46 +43,17 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }))
 
-// Returns a proc that fires its events as a micro-task AFTER spawn() returns it,
-// giving the route time to attach listeners.
-function makeMockProc(stdoutData: string, exitCode: number) {
-  const proc = new EventEmitter() as any
-  proc.stdout = new EventEmitter()
-  proc.stderr = new EventEmitter()
-  // fire via Promise so it runs after the synchronous listener-attachment block in route.ts
-  Promise.resolve().then(() => Promise.resolve()).then(() => {
-    if (stdoutData) proc.stdout.emit("data", Buffer.from(stdoutData))
-    proc.emit("close", exitCode)
-  })
-  return proc
-}
-
-function makeMockProcStderr(stderrData: string, exitCode: number) {
-  const proc = new EventEmitter() as any
-  proc.stdout = new EventEmitter()
-  proc.stderr = new EventEmitter()
-  Promise.resolve().then(() => Promise.resolve()).then(() => {
-    proc.stderr.emit("data", Buffer.from(stderrData))
-    proc.emit("close", exitCode)
-  })
-  return proc
-}
-
-function makeMockProcError(message: string) {
-  const proc = new EventEmitter() as any
-  proc.stdout = new EventEmitter()
-  proc.stderr = new EventEmitter()
-  Promise.resolve().then(() => Promise.resolve()).then(() => {
-    proc.emit("error", new Error(message))
-  })
-  return proc
-}
-
 describe("POST /api/suggest", () => {
   beforeEach(() => {
-    mockSpawn.mockClear()
     mockReadFile.mockResolvedValue(Buffer.from("fake-image"))
     mockSharpMeta.mockResolvedValue({ width: 800, height: 600 })
+    // Raw pixel buffer at the downscaled size; content is irrelevant since
+    // suggestPoints is mocked. info dimensions drive the coordinate scale-back.
+    mockSharpToBuffer.mockResolvedValue({
+      data: Buffer.alloc(0),
+      info: { width: 400, height: 300 },
+    })
+    mockSuggestPoints.mockReturnValue([{ x: 50, y: 100, color: "#ff0000" }])
     mockCreate.mockResolvedValue({
       content: [{ type: "text", text: '[{"x":0.5,"y":0.5,"description":"test color"}]' }],
     })
@@ -87,12 +65,13 @@ describe("POST /api/suggest", () => {
     vi.clearAllMocks()
   })
 
-  it("returns 200 with points for valid slic request", async () => {
-    const mockPoints = [
-      { x: 100, y: 200, color: "#ff0000" },
-      { x: 300, y: 400, color: "#00ff00" },
-    ]
-    mockSpawn.mockImplementation(() => makeMockProc(JSON.stringify(mockPoints), 0))
+  it("returns 200 with points scaled back to original pixels for valid slic request", async () => {
+    // Downscaled buffer is 400×300; original meta is 800×600, so a point at
+    // (50,100) in the downscaled space maps to (100,200) at full res.
+    mockSuggestPoints.mockReturnValue([
+      { x: 50, y: 100, color: "#ff0000" },
+      { x: 150, y: 200, color: "#00ff00" },
+    ])
 
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -105,11 +84,13 @@ describe("POST /api/suggest", () => {
     const json = await res.json()
 
     expect(res.status).toBe(200)
-    expect(json.points).toEqual(mockPoints)
+    expect(json.points).toEqual([
+      { x: 100, y: 200, color: "#ff0000" },
+      { x: 300, y: 400, color: "#00ff00" },
+    ])
   })
 
   it("touches the upload dir mtime before running slic (idle TTL for cleanup cron)", async () => {
-    mockSpawn.mockImplementation(() => makeMockProc(JSON.stringify([{ x: 1, y: 2, color: "#abc" }]), 0))
     const { POST } = await import("./route")
     const id = "12345678-1234-1234-1234-123456789abc"
     const req = new Request("http://localhost/api/suggest", {
@@ -133,10 +114,7 @@ describe("POST /api/suggest", () => {
     expect(mockUtimesSync).toHaveBeenCalledWith(`/tmp/${id}`, expect.any(Date), expect.any(Date))
   })
 
-  it("calls spawn with python3 and correct image path", async () => {
-    const mockPoints = [{ x: 10, y: 20, color: "#aabbcc" }]
-    mockSpawn.mockImplementation(() => makeMockProc(JSON.stringify(mockPoints), 0))
-
+  it("passes the downscaled raw pixels to suggestPoints", async () => {
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
       method: "POST",
@@ -146,10 +124,9 @@ describe("POST /api/suggest", () => {
 
     await POST(req as any)
 
-    expect(mockSpawn).toHaveBeenCalledOnce()
-    const [cmd, args] = mockSpawn.mock.calls[0]
-    expect(cmd).toMatch(/python3$/)  // may be a venv path
-    expect(args[1]).toBe("/tmp/12345678-1234-1234-1234-123456789abc/original.jpg")
+    expect(mockSuggestPoints).toHaveBeenCalledOnce()
+    const [img] = mockSuggestPoints.mock.calls[0]
+    expect(img).toEqual({ width: 400, height: 300, data: expect.anything() })
   })
 
   it("returns 400 for invalid UUID", async () => {
@@ -162,7 +139,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(400)
-    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockSuggestPoints).not.toHaveBeenCalled()
   })
 
   it("returns 400 for missing id", async () => {
@@ -177,8 +154,8 @@ describe("POST /api/suggest", () => {
     expect(res.status).toBe(400)
   })
 
-  it("returns 500 when spawn exits with non-zero code", async () => {
-    mockSpawn.mockImplementation(() => makeMockProcStderr("ModuleNotFoundError: no module", 1))
+  it("returns 500 when the image can't be read", async () => {
+    mockReadFile.mockRejectedValue(new Error("ENOENT"))
 
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -191,8 +168,8 @@ describe("POST /api/suggest", () => {
     expect(res.status).toBe(500)
   })
 
-  it("returns 500 when spawn emits error event", async () => {
-    mockSpawn.mockImplementation(() => makeMockProcError("python3 not found"))
+  it("returns 500 when sharp raw decoding fails", async () => {
+    mockSharpToBuffer.mockRejectedValue(new Error("bad image"))
 
     const { POST } = await import("./route")
     const req = new Request("http://localhost/api/suggest", {
@@ -215,7 +192,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(400)
-    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockSuggestPoints).not.toHaveBeenCalled()
   })
 
   it("returns 400 for a malformed JSON body", async () => {
@@ -228,21 +205,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(400)
-    expect(mockSpawn).not.toHaveBeenCalled()
-  })
-
-  it("returns 500 when stdout is not valid JSON", async () => {
-    mockSpawn.mockImplementation(() => makeMockProc("not json at all", 0))
-
-    const { POST } = await import("./route")
-    const req = new Request("http://localhost/api/suggest", {
-      method: "POST",
-      body: JSON.stringify({ id: "12345678-1234-1234-1234-123456789abc", method: "slic" }),
-      headers: { "Content-Type": "application/json" },
-    })
-
-    const res = await POST(req as any)
-    expect(res.status).toBe(500)
+    expect(mockSuggestPoints).not.toHaveBeenCalled()
   })
 
   it("returns 503 for claude method when no API key", async () => {
@@ -256,7 +219,7 @@ describe("POST /api/suggest", () => {
 
     const res = await POST(req as any)
     expect(res.status).toBe(503)
-    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockSuggestPoints).not.toHaveBeenCalled()
   })
 
   it("returns 200 with points for valid claude request", async () => {
