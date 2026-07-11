@@ -104,6 +104,7 @@ function makeProps(overrides?: Partial<Parameters<typeof Canvas>[0]>) {
     onDeselect: vi.fn(),
     onUpdateLabelText: vi.fn(),
     onUpdateLabelPos: vi.fn(),
+    onLabelDragEnd: vi.fn(),
     ...overrides,
   }
 }
@@ -201,9 +202,11 @@ describe("Canvas", () => {
     expect(queryByTestId("label-edit-overlay")).toBeNull()
   })
 
-  it("renders LabelEditOverlay (edit) and not LabelLayer when labelEditMode is true (AC1)", () => {
+  it("renders BOTH LabelLayer (live preview) and LabelEditOverlay when labelEditMode is true", () => {
+    // LabelLayer stays mounted in edit mode as the live preview; the transparent
+    // LabelEditOverlay inputs sit exactly on top of it (position-drift fix).
     const { queryByTestId } = render(<Canvas {...makeProps({ labelEditMode: true })} />)
     expect(queryByTestId("label-edit-overlay")).not.toBeNull()
-    expect(queryByTestId("label-layer")).toBeNull()
+    expect(queryByTestId("label-layer")).not.toBeNull()
   })
 })

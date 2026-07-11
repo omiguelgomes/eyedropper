@@ -1,19 +1,17 @@
 "use client"
 
 import type { EyedropperPoint } from "@/lib/types"
-import { FONT_OPTIONS } from "@/lib/fonts"
+import { FONT_OPTIONS, FONT_CATEGORIES } from "@/lib/fonts"
 
 interface Props {
   label: EyedropperPoint["label"]
   onUpdate: (patch: Partial<EyedropperPoint["label"]>) => void
-  onApplyToAll: (field: "fontFamily" | "fontSize" | "color") => void
 }
 
 // Right-panel per-selected-point label controls, shown in label-edit mode
 // instead of PointPanel (UI.md:127-148). A single onUpdate(patch) keeps the
-// surface minimal (partial merge) rather than five callbacks. "Apply to all
-// labels" (Story 3.4) broadcasts the selected point's font/size/color to all.
-export default function LabelPanel({ label, onUpdate, onApplyToAll }: Props) {
+// surface minimal (partial merge) rather than five callbacks.
+export default function LabelPanel({ label, onUpdate }: Props) {
   return (
     <section data-testid="label-panel">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
@@ -36,10 +34,14 @@ export default function LabelPanel({ label, onUpdate, onApplyToAll }: Props) {
         onChange={(e) => onUpdate({ fontFamily: e.target.value })}
         className="w-full text-sm px-2 py-1 mb-3 rounded border border-[var(--color-border)] bg-white text-[var(--color-text-primary)]"
       >
-        {FONT_OPTIONS.map((o) => (
-          <option key={o.label} value={o.label}>
-            {o.label}
-          </option>
+        {FONT_CATEGORIES.map((cat) => (
+          <optgroup key={cat} label={cat}>
+            {FONT_OPTIONS.filter((o) => o.category === cat).map((o) => (
+              <option key={o.label} value={o.label}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
 
@@ -85,31 +87,6 @@ export default function LabelPanel({ label, onUpdate, onApplyToAll }: Props) {
         Show label
       </label>
 
-      <div className="mt-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
-          Apply to all labels
-        </p>
-        <div className="flex gap-1">
-          <button
-            onClick={() => onApplyToAll("fontFamily")}
-            className="text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-white hover:border-[var(--color-accent)] transition-colors"
-          >
-            Font
-          </button>
-          <button
-            onClick={() => onApplyToAll("fontSize")}
-            className="text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-white hover:border-[var(--color-accent)] transition-colors"
-          >
-            Size
-          </button>
-          <button
-            onClick={() => onApplyToAll("color")}
-            className="text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-white hover:border-[var(--color-accent)] transition-colors"
-          >
-            Color
-          </button>
-        </div>
-      </div>
     </section>
   )
 }

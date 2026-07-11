@@ -43,6 +43,7 @@ interface CanvasProps {
   onDeselect: () => void
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
+  onLabelDragEnd: (id: string, x: number, y: number) => void
 }
 
 export default function Canvas({
@@ -74,6 +75,7 @@ export default function Canvas({
   onDeselect,
   onUpdateLabelText,
   onUpdateLabelPos,
+  onLabelDragEnd,
 }: CanvasProps) {
   const scale = displayWidth / canvasLayout.canvasWidth
 
@@ -168,14 +170,15 @@ export default function Canvas({
           alignment line (SnapGuideLayer) and the badges are complementary:
           line = "aligned axis", badges = "equal gaps". */}
       <DistributionGuideLayer distribution={distribution} scale={scale} />
-      {!labelEditMode && (
-        <LabelLayer
-          points={points}
-          style={style}
-          canvasWidth={canvasLayout.canvasWidth}
-          canvasHeight={canvasLayout.canvasHeight}
-        />
-      )}
+      {/* Kept mounted in BOTH modes: in edit mode it is the live preview that the
+          transparent LabelEditOverlay inputs sit exactly on top of, so what the
+          artist sees while typing is pixel-identical to the export. */}
+      <LabelLayer
+        points={points}
+        style={style}
+        canvasWidth={canvasLayout.canvasWidth}
+        canvasHeight={canvasLayout.canvasHeight}
+      />
     </Stage>
     {labelEditMode && (
       <LabelEditOverlay
@@ -185,6 +188,8 @@ export default function Canvas({
         scale={scale}
         onUpdateLabelText={onUpdateLabelText}
         onUpdateLabelPos={onUpdateLabelPos}
+        onLabelDragEnd={onLabelDragEnd}
+        onSelectPoint={onSelectPoint}
       />
     )}
     </div>

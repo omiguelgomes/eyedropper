@@ -16,24 +16,24 @@ import StylePicker from "./StylePicker"
 const STYLES = loadStyles()
 
 describe("StylePicker", () => {
-  it("renders one button per style (4 built-in styles incl. pastel)", () => {
+  it("renders one button per style (3 pastels + float)", () => {
     const { getAllByRole } = render(
-      <StylePicker styles={STYLES} activeStyleName="float" onSelect={vi.fn()} />
+      <StylePicker styles={STYLES} activeStyleName="pastel" onSelect={vi.fn()} />
     )
     const buttons = getAllByRole("button")
     expect(buttons).toHaveLength(4)
     const names = buttons.map((b) => b.textContent)
-    expect(names).toEqual(["float", "grid", "minimal", "pastel"])
+    expect(names).toEqual(["pastel", "pastel ring", "pastel bold", "float"])
   })
 
   it("marks only the active style button aria-pressed='true'", () => {
     const { getByText } = render(
-      <StylePicker styles={STYLES} activeStyleName="grid" onSelect={vi.fn()} />
+      <StylePicker styles={STYLES} activeStyleName="float" onSelect={vi.fn()} />
     )
     const button = (name: string) => getByText(name).closest("button")!
-    expect(button("grid").getAttribute("aria-pressed")).toBe("true")
-    expect(button("float").getAttribute("aria-pressed")).toBe("false")
-    expect(button("minimal").getAttribute("aria-pressed")).toBe("false")
+    expect(button("float").getAttribute("aria-pressed")).toBe("true")
+    expect(button("pastel bold").getAttribute("aria-pressed")).toBe("false")
+    expect(button("pastel").getAttribute("aria-pressed")).toBe("false")
   })
 
   it("the active button carries the accent border class", () => {
@@ -42,7 +42,7 @@ describe("StylePicker", () => {
     )
     const activeButton = getByText("float").closest("button")!
     expect(activeButton.className).toContain("border-[var(--color-accent)]")
-    const inactiveButton = getByText("grid").closest("button")!
+    const inactiveButton = getByText("pastel bold").closest("button")!
     expect(inactiveButton.className).toContain("border-[var(--color-border)]")
   })
 
@@ -51,12 +51,12 @@ describe("StylePicker", () => {
     const { getByText } = render(
       <StylePicker styles={STYLES} activeStyleName="float" onSelect={onSelect} />
     )
-    fireEvent.click(getByText("grid").closest("button")!)
+    fireEvent.click(getByText("pastel bold").closest("button")!)
     expect(onSelect).toHaveBeenCalledTimes(1)
     const arg = onSelect.mock.calls[0][0]
-    expect(arg.name).toBe("grid")
-    expect(arg.markerStyle).toBe("dot")
-    expect(arg.connectorType).toBe("none")
+    expect(arg.name).toBe("pastel bold")
+    expect(arg.markerStyle).toBe("ring")
+    expect(arg.connectorType).toBe("curved")
   })
 
   it("pastel is selectable and highlights when active (Story 3.5 AC1)", () => {
@@ -82,10 +82,10 @@ describe("StylePicker", () => {
     )
     const thumbs = getAllByTestId("thumbnail")
     expect(thumbs.map((t) => t.getAttribute("data-style"))).toEqual([
-      "float",
-      "grid",
-      "minimal",
       "pastel",
+      "pastel ring",
+      "pastel bold",
+      "float",
     ])
   })
 })

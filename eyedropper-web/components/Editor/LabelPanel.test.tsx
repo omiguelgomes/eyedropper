@@ -4,15 +4,16 @@ import { render, fireEvent } from "@testing-library/react"
 import type { EyedropperPoint } from "@/lib/types"
 
 // Mock @/lib/fonts so the component's FONT_OPTIONS import resolves without the
-// real next/font transform. Provide the 6 AC7 labels in order.
+// real next/font transform. Provide a small grouped set spanning two categories
+// so the <optgroup> rendering is exercised.
 vi.mock("@/lib/fonts", () => ({
+  FONT_CATEGORIES: ["Serif", "Sans"],
   FONT_OPTIONS: [
-    { label: "Cormorant Garamond Italic", family: "Cormorant" },
-    { label: "Playfair Display Italic", family: "Playfair" },
-    { label: "Inter", family: "Inter" },
-    { label: "DM Serif Display", family: "DMSerif" },
-    { label: "Libre Baskerville Italic", family: "Libre" },
-    { label: "System", family: "serif" },
+    { label: "Cormorant Garamond Italic", family: "Cormorant", category: "Serif" },
+    { label: "Playfair Display Italic", family: "Playfair", category: "Serif" },
+    { label: "System", family: "serif", category: "Serif" },
+    { label: "Inter", family: "Inter", category: "Sans" },
+    { label: "Montserrat", family: "Montserrat", category: "Sans" },
   ],
   resolveFontFamily: (s: string) => s,
 }))
@@ -32,13 +33,11 @@ function makeLabel(overrides: Partial<EyedropperPoint["label"]> = {}): Eyedroppe
   }
 }
 
-// LabelPanel now requires onApplyToAll (Story 3.4). Centralize the required
-// props so each test only overrides what it asserts on.
+// Centralize the required props so each test only overrides what it asserts on.
 function makeProps(overrides: Partial<React.ComponentProps<typeof LabelPanel>> = {}) {
   return {
     label: makeLabel(),
     onUpdate: vi.fn(),
-    onApplyToAll: vi.fn(),
     ...overrides,
   }
 }
@@ -53,18 +52,21 @@ describe("LabelPanel", () => {
     expect(onUpdate).toHaveBeenCalledWith({ text: "Scarlet" })
   })
 
-  it("lists the 6 font options in order and reflects label.fontFamily (AC3, AC7)", () => {
+  it("lists font options grouped by category and reflects label.fontFamily", () => {
     const onUpdate = vi.fn()
     const { getByLabelText } = render(<LabelPanel {...makeProps({ onUpdate })} />)
     const select = getByLabelText("Font family") as HTMLSelectElement
+    // Options appear grouped, in category order (Serif then Sans).
     expect(Array.from(select.options).map((o) => o.value)).toEqual([
       "Cormorant Garamond Italic",
       "Playfair Display Italic",
-      "Inter",
-      "DM Serif Display",
-      "Libre Baskerville Italic",
       "System",
+      "Inter",
+      "Montserrat",
     ])
+    // Rendered inside <optgroup> containers, one per category.
+    const groups = select.querySelectorAll("optgroup")
+    expect(Array.from(groups).map((g) => g.label)).toEqual(["Serif", "Sans"])
     expect(select.value).toBe("Cormorant Garamond Italic")
     fireEvent.change(select, { target: { value: "Inter" } })
     expect(onUpdate).toHaveBeenCalledWith({ fontFamily: "Inter" })
@@ -99,19 +101,4 @@ describe("LabelPanel", () => {
     expect(onUpdate).toHaveBeenCalledWith({ visible: false })
   })
 
-  it("renders Font/Size/Color apply-to-all buttons that broadcast the field key (AC1-AC4)", () => {
-    const onApplyToAll = vi.fn()
-    const { getByRole } = render(<LabelPanel {...makeProps({ onApplyToAll })} />)
-
-    const fontBtn = getByRole("button", { name: "Font" })
-    const sizeBtn = getByRole("button", { name: "Size" })
-    const colorBtn = getByRole("button", { name: "Color" })
-
-    fireEvent.click(fontBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("fontFamily")
-    fireEvent.click(sizeBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("fontSize")
-    fireEvent.click(colorBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("color")
-  })
 })

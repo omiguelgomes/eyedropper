@@ -54,6 +54,8 @@ type SwatchHandlers = {
 // the group's own offscreen buffer and never tints the photo/neighbours (AC6).
 // Children are in group-local coords centred on (0,0); the Group is positioned at
 // the swatch centre so drag write-back (Group x/y) matches the flat path.
+// `border` is optional: the plain "pastel" style has no ring (pencil disc only),
+// while "pastel ring"/"pastel bold" supply the thin/strong chalk ring texture.
 function TexturedSwatch({
   color,
   radius,
@@ -68,7 +70,7 @@ function TexturedSwatch({
   color: string
   radius: number
   pencil: HTMLImageElement
-  border: HTMLImageElement
+  border: HTMLImageElement | null
   x: number
   y: number
   draggable: boolean
@@ -121,15 +123,18 @@ function TexturedSwatch({
         globalCompositeOperation="destination-in"
         listening={false}
       />
-      {/* Rough white chalk ring on top, drawn as-is (no tint). */}
-      <KonvaImage
-        image={border}
-        x={-radius}
-        y={-radius}
-        width={2 * radius}
-        height={2 * radius}
-        listening={false}
-      />
+      {/* Rough white chalk ring on top, drawn as-is (no tint). Omitted for the
+          ring-less "pastel" style (border === null). */}
+      {border && (
+        <KonvaImage
+          image={border}
+          x={-radius}
+          y={-radius}
+          width={2 * radius}
+          height={2 * radius}
+          listening={false}
+        />
+      )}
     </Group>
   )
 }
@@ -174,10 +179,11 @@ export default function EyedropperLayer({
   labelEditMode,
   selectedPointId,
 }: Props) {
-  // Draw the textured swatch only when the style asks for it AND both textures
-  // have decoded; otherwise the flat Circle is the fallback (existing four styles
-  // always take this path, and pastel does too for the frame before load).
-  const useTexture = !!(style.swatchTexture && pencilTexture && borderTexture)
+  // Draw the textured swatch only when the style asks for it AND the pencil has
+  // decoded; otherwise the flat Circle is the fallback (float always takes
+  // that path, and pastel does too for the frame before load). The border is
+  // independent: the plain "pastel" style has none, so it is NOT required here.
+  const useTexture = !!(style.swatchTexture && pencilTexture)
 
   return (
     <Layer>
@@ -278,7 +284,7 @@ export default function EyedropperLayer({
                 color={p.color}
                 radius={style.swatchRadius}
                 pencil={pencilTexture!}
-                border={borderTexture!}
+                border={style.borderTexture ? borderTexture ?? null : null}
                 x={swatchPos.x}
                 y={swatchPos.y}
                 draggable={interactionMode === "select"}
@@ -300,46 +306,44 @@ export default function EyedropperLayer({
             )}
 
             {/* Marker — hollow ring or filled dot depending on style.markerStyle */}
-            {style.markerStyle !== "none" && (
-              <Circle
-                x={markerX}
-                y={markerY}
-                radius={style.markerStyle === "dot" ? 6 : 12}
-                fill={style.markerStyle === "dot" ? style.markerColor : undefined}
-                stroke={style.markerColor}
-                strokeWidth={style.markerStyle === "dot" ? 0 : 2}
-                draggable={interactionMode === "select"}
-                onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
-                  e.evt.preventDefault()
-                  onRequestRemove(p.id, e.evt.clientX, e.evt.clientY)
-                }}
-                {...(interactionMode === "select" && {
-                  onClick: (e: KonvaEventObject<MouseEvent>) => {
-                    e.cancelBubble = true
-                    onSelectPoint(p.id)
-                  },
-                  onMouseEnter: (e: KonvaEventObject<MouseEvent>) => {
-                    const c = e.target.getStage()?.container()
-                    if (c) c.style.cursor = "move"
-                  },
-                  onMouseLeave: (e: KonvaEventObject<MouseEvent>) => {
-                    const c = e.target.getStage()?.container()
-                    if (c) c.style.cursor = "default"
-                  },
-                  onDragMove: (e: KonvaEventObject<DragEvent>) => {
-                    onMarkerDragMove(p.id, e.target.x(), e.target.y())
-                  },
-                  onDragEnd: (e: KonvaEventObject<DragEvent>) => {
-                    const snapped = onMarkerDragEnd(p.id, e.target.x(), e.target.y())
-                    // Snap the node to the clamped final position so it doesn't
-                    // sit at the (possibly out-of-bounds) drop point for a frame
-                    // before React reconciles the new coords.
-                    e.target.x(snapped.x)
-                    e.target.y(snapped.y)
-                  },
-                })}
-              />
-            )}
+            <Circle
+              x={markerX}
+              y={markerY}
+              radius={style.markerStyle === "dot" ? 6 : 12}
+              fill={style.markerStyle === "dot" ? style.markerColor : undefined}
+              stroke={style.markerColor}
+              strokeWidth={style.markerStyle === "dot" ? 0 : 2}
+              draggable={interactionMode === "select"}
+              onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
+                e.evt.preventDefault()
+                onRequestRemove(p.id, e.evt.clientX, e.evt.clientY)
+              }}
+              {...(interactionMode === "select" && {
+                onClick: (e: KonvaEventObject<MouseEvent>) => {
+                  e.cancelBubble = true
+                  onSelectPoint(p.id)
+                },
+                onMouseEnter: (e: KonvaEventObject<MouseEvent>) => {
+                  const c = e.target.getStage()?.container()
+                  if (c) c.style.cursor = "move"
+                },
+                onMouseLeave: (e: KonvaEventObject<MouseEvent>) => {
+                  const c = e.target.getStage()?.container()
+                  if (c) c.style.cursor = "default"
+                },
+                onDragMove: (e: KonvaEventObject<DragEvent>) => {
+                  onMarkerDragMove(p.id, e.target.x(), e.target.y())
+                },
+                onDragEnd: (e: KonvaEventObject<DragEvent>) => {
+                  const snapped = onMarkerDragEnd(p.id, e.target.x(), e.target.y())
+                  // Snap the node to the clamped final position so it doesn't
+                  // sit at the (possibly out-of-bounds) drop point for a frame
+                  // before React reconciles the new coords.
+                  e.target.x(snapped.x)
+                  e.target.y(snapped.y)
+                },
+              })}
+            />
 
             {/* Bend handle (Story 5.4) — a small draggable ring at the connector's
                 current midpoint, drawn ON TOP so it is easy to grab. Drag it to bow

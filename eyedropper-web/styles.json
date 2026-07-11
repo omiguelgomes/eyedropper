@@ -1,6 +1,6 @@
 [
   {
-    "name": "float",
+    "name": "pastel",
     "swatchRadius": 48,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
@@ -9,34 +9,25 @@
     "connectorWidth": 2,
     "markerStyle": "ring",
     "markerColor": "#ffffff",
-    "labelPosition": "beside"
+    "labelPosition": "beside",
+    "swatchTexture": "/textures/swatch-pencil.png"
   },
   {
-    "name": "grid",
+    "name": "pastel ring",
     "swatchRadius": 48,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
-    "connectorType": "none",
+    "connectorType": "curved",
     "connectorColor": "#1e1e1e",
     "connectorWidth": 2,
-    "markerStyle": "dot",
+    "markerStyle": "ring",
     "markerColor": "#ffffff",
-    "labelPosition": "below"
+    "labelPosition": "beside",
+    "swatchTexture": "/textures/swatch-pencil.png",
+    "borderTexture": "/textures/swatch-border-thin.png"
   },
   {
-    "name": "minimal",
-    "swatchRadius": 40,
-    "swatchBorderColor": "#ffffff",
-    "swatchBorderWidth": 2,
-    "connectorType": "straight",
-    "connectorColor": "#1e1e1e",
-    "connectorWidth": 1,
-    "markerStyle": "none",
-    "markerColor": "#ffffff",
-    "labelPosition": "none"
-  },
-  {
-    "name": "pastel",
+    "name": "pastel bold",
     "swatchRadius": 48,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
@@ -48,5 +39,17 @@
     "labelPosition": "beside",
     "swatchTexture": "/textures/swatch-pencil.png",
     "borderTexture": "/textures/swatch-border.png"
+  },
+  {
+    "name": "float",
+    "swatchRadius": 48,
+    "swatchBorderColor": "#ffffff",
+    "swatchBorderWidth": 3,
+    "connectorType": "curved",
+    "connectorColor": "#1e1e1e",
+    "connectorWidth": 2,
+    "markerStyle": "ring",
+    "markerColor": "#ffffff",
+    "labelPosition": "beside"
   }
 ]

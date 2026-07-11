@@ -77,20 +77,21 @@ describe("LabelLayer", () => {
     expect(texts[0].getAttribute("data-text")).toBe("Crimson")
   })
 
-  it("renders one Text per visible point for a 'below' style (grid)", () => {
+  it("renders one Text per visible point for a 'below' style", () => {
     const points = [makePoint("p1")]
+    const belowStyle = { ...styleByName("float"), labelPosition: "below" as const }
     const { getAllByTestId } = render(
-      <LabelLayer points={points} style={styleByName("grid")} {...DEFAULT} />
+      <LabelLayer points={points} style={belowStyle} {...DEFAULT} />
     )
     expect(getAllByTestId("label-text")).toHaveLength(1)
   })
 
-  it("renders NO Text for a labelPosition 'none' style (minimal)", () => {
+  it("renders one Text per visible point for a pastel style (beside)", () => {
     const points = [makePoint("p1")]
-    const { queryAllByTestId } = render(
-      <LabelLayer points={points} style={styleByName("minimal")} {...DEFAULT} />
+    const { getAllByTestId } = render(
+      <LabelLayer points={points} style={styleByName("pastel")} {...DEFAULT} />
     )
-    expect(queryAllByTestId("label-text")).toHaveLength(0)
+    expect(getAllByTestId("label-text")).toHaveLength(1)
   })
 
   it("skips a point whose label.visible is false", () => {

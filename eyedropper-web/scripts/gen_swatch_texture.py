@@ -158,22 +158,40 @@ GRAIN_STEP = 3.0           # speckle cell size (px); smaller -> finer chalk grai
 GRAIN_FLOOR = 0.35         # grain multiplies alpha in [GRAIN_FLOOR, 1] -> broken coverage
 
 
-def generate_border() -> Image.Image:
-    """Symmetric grainy white chalk ring; shape carried by alpha, RGB pure white."""
-    rng = np.random.default_rng(SEED + 1)
+# Thin-ring variant tunables — the `pastel ring` style. Same chalk technique,
+# a much slimmer band: tighter radial scatter, fewer dabs (band area shrinks),
+# smaller per-dab size so the grain still reads at the reduced width. Radius sits
+# a touch inward so the slim ring hugs the disc edge rather than floating outside.
+THIN_RING_R = 116.0        # mean ring radius (px) — nearer the disc edge
+THIN_RING_WIDTH = 2.2      # radial std-dev (px) — much narrower band
+THIN_RING_SIGMA = 1.2      # per-dab size (px)
+THIN_RING_DABS = 5000      # fewer dabs for the smaller band area
+THIN_RING_AMP = (0.05, 0.16)
+
+
+def _make_border(
+    ring_r: float, ring_width: float, ring_sigma: float, ring_dabs: int,
+    ring_amp: tuple[float, float], seed_offset: int,
+) -> Image.Image:
+    """Symmetric grainy white chalk ring; shape carried by alpha, RGB pure white.
+
+    Parameterized so the bold (default) and thin ring share one implementation —
+    the only difference between the two assets is the band geometry passed in.
+    """
+    rng = np.random.default_rng(SEED + seed_offset)
     c = (SIZE - 1) / 2.0
     alpha = np.zeros((SIZE, SIZE), dtype=np.float32)
 
     # Evenly spread angles (statistical symmetry) with a full-jitter offset each,
     # radius scattered normally about the centreline so the band feathers.
-    base_angles = np.linspace(0.0, 2.0 * np.pi, RING_DABS, endpoint=False)
+    base_angles = np.linspace(0.0, 2.0 * np.pi, ring_dabs, endpoint=False)
     for a0 in base_angles:
-        angle = a0 + rng.uniform(0.0, 2.0 * np.pi / RING_DABS)
-        r = RING_R + rng.normal(0.0, RING_WIDTH)
+        angle = a0 + rng.uniform(0.0, 2.0 * np.pi / ring_dabs)
+        r = ring_r + rng.normal(0.0, ring_width)
         cx = c + r * np.cos(angle)
         cy = c + r * np.sin(angle)
-        amp = rng.uniform(*RING_AMP)
-        _deposit_dab(alpha, cx, cy, amp, RING_SIGMA)
+        amp = rng.uniform(*ring_amp)
+        _deposit_dab(alpha, cx, cy, amp, ring_sigma)
 
     # Speckle grain: fine value noise in [GRAIN_FLOOR, 1] multiplies the band so
     # coverage is broken and uneven — dusty chalk rather than a solid ring.
@@ -186,6 +204,18 @@ def generate_border() -> Image.Image:
     a8 = np.clip(a * 255.0, 0, 255).astype(np.uint8)
     out = np.dstack([rgb, rgb, rgb, a8])
     return Image.fromarray(out, mode="RGBA")
+
+
+def generate_border() -> Image.Image:
+    """The bold (default) chalk ring — swatch-border.png."""
+    return _make_border(RING_R, RING_WIDTH, RING_SIGMA, RING_DABS, RING_AMP, 1)
+
+
+def generate_thin_border() -> Image.Image:
+    """The slim chalk ring — swatch-border-thin.png (`pastel ring` style)."""
+    return _make_border(
+        THIN_RING_R, THIN_RING_WIDTH, THIN_RING_SIGMA, THIN_RING_DABS, THIN_RING_AMP, 2
+    )
 
 
 def main() -> None:
@@ -201,6 +231,11 @@ def main() -> None:
     border = generate_border()
     border.save(border_path)
     print(f"wrote {border_path}  ({border.width}x{border.height} {border.mode})")
+
+    thin_path = os.path.join(tex_dir, "swatch-border-thin.png")
+    thin = generate_thin_border()
+    thin.save(thin_path)
+    print(f"wrote {thin_path}  ({thin.width}x{thin.height} {thin.mode})")
 
 
 if __name__ == "__main__":

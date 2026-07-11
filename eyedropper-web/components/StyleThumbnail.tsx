@@ -39,7 +39,7 @@ function ThumbTexturedSwatch({
   x, y, radius, color, pencil, border,
 }: {
   x: number; y: number; radius: number; color: string
-  pencil: HTMLImageElement; border: HTMLImageElement
+  pencil: HTMLImageElement; border: HTMLImageElement | null
 }) {
   const groupRef = useRef<Konva.Group>(null)
   useLayoutEffect(() => {
@@ -53,7 +53,9 @@ function ThumbTexturedSwatch({
         globalCompositeOperation="multiply" listening={false} />
       <KonvaImage image={pencil} x={-radius} y={-radius} width={2 * radius} height={2 * radius}
         globalCompositeOperation="destination-in" listening={false} />
-      <KonvaImage image={border} x={-radius} y={-radius} width={2 * radius} height={2 * radius} listening={false} />
+      {border && (
+        <KonvaImage image={border} x={-radius} y={-radius} width={2 * radius} height={2 * radius} listening={false} />
+      )}
     </Group>
   )
 }
@@ -79,7 +81,8 @@ export default function StyleThumbnail({ style, sampleImg, pencilTexture, border
   }
 
   const swatchX = THUMB_W - SWATCH_R
-  const useTexture = !!(style.swatchTexture && pencilTexture && borderTexture)
+  // Pencil-only gate (the border is optional — the ring-less "pastel" has none).
+  const useTexture = !!(style.swatchTexture && pencilTexture)
 
   return (
     <Stage width={THUMB_W} height={THUMB_H}>
@@ -117,7 +120,7 @@ export default function StyleThumbnail({ style, sampleImg, pencilTexture, border
               radius={SWATCH_R}
               color={p.color}
               pencil={pencilTexture!}
-              border={borderTexture!}
+              border={borderTexture ?? null}
             />
           ) : (
             <Circle
@@ -133,23 +136,22 @@ export default function StyleThumbnail({ style, sampleImg, pencilTexture, border
           )
         )}
 
-        {/* Markers — ring (hollow) / dot (filled) / none, mirroring EyedropperLayer */}
-        {style.markerStyle !== "none" &&
-          SAMPLE_POINTS.map((p, i) => {
-            const isDot = style.markerStyle === "dot"
-            return (
-              <Circle
-                key={`marker-${i}`}
-                x={p.markerX}
-                y={p.markerY}
-                radius={isDot ? 2.5 : 4}
-                fill={isDot ? style.markerColor : undefined}
-                stroke={style.markerColor}
-                strokeWidth={isDot ? 0 : 1.5}
-                listening={false}
-              />
-            )
-          })}
+        {/* Markers — ring (hollow) / dot (filled), mirroring EyedropperLayer */}
+        {SAMPLE_POINTS.map((p, i) => {
+          const isDot = style.markerStyle === "dot"
+          return (
+            <Circle
+              key={`marker-${i}`}
+              x={p.markerX}
+              y={p.markerY}
+              radius={isDot ? 2.5 : 4}
+              fill={isDot ? style.markerColor : undefined}
+              stroke={style.markerColor}
+              strokeWidth={isDot ? 0 : 1.5}
+              listening={false}
+            />
+          )
+        })}
       </Layer>
     </Stage>
   )

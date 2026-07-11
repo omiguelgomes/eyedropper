@@ -12,35 +12,32 @@ interface Props {
   canvasHeight: number
 }
 
-// Static Konva text labels shown in DISPLAY mode (labelEditMode === false).
-// Only styles whose labelPosition is "beside" or "below" show labels; "none"
-// (minimal) renders nothing. Position comes from the stored
-// label.x/label.y (the source of truth — seeded on edit-mode entry and updated
-// by dragging), so labels stay where the artist dragged them.
+// Static Konva text labels shown in DISPLAY mode, and also kept mounted in edit
+// mode as the live preview under the transparent LabelEditOverlay. Position comes
+// from the stored label.x/label.y (the source of truth — seeded on edit-mode
+// entry and updated by dragging), so labels stay where the artist dragged them.
 export default function LabelLayer({ points, style }: Props) {
   return (
     <Layer>
-      {style.labelPosition === "none"
-        ? null
-        : points.map((p) => {
-            if (p.swatchOrder === null) return null
-            if (!p.label.visible) return null
-            if (p.label.text === "") return null
+      {points.map((p) => {
+        if (p.swatchOrder === null) return null
+        if (!p.label.visible) return null
+        if (p.label.text === "") return null
 
-            return (
-              <Text
-                key={p.id}
-                x={p.label.x}
-                y={p.label.y}
-                text={p.label.text}
-                fontSize={p.label.fontSize}
-                fontFamily={resolveFontFamily(p.label.fontFamily)}
-                fill={p.label.color}
-                align={style.labelPosition === "below" ? "center" : "left"}
-                listening={false}
-              />
-            )
-          })}
+        return (
+          <Text
+            key={p.id}
+            x={p.label.x}
+            y={p.label.y}
+            text={p.label.text}
+            fontSize={p.label.fontSize}
+            fontFamily={resolveFontFamily(p.label.fontFamily)}
+            fill={p.label.color}
+            align={style.labelPosition === "below" ? "center" : "left"}
+            listening={false}
+          />
+        )
+      })}
     </Layer>
   )
 }

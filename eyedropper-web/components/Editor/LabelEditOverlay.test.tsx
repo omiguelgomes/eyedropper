@@ -51,6 +51,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -64,6 +65,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -80,6 +82,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={onUpdateLabelText}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -94,6 +97,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -107,6 +111,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -120,6 +125,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -135,6 +141,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -153,6 +160,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={onUpdateLabelPos}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -172,6 +180,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={onUpdateLabelPos}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -189,6 +198,7 @@ describe("LabelEditOverlay", () => {
         points={points}
         onUpdateLabelText={vi.fn()}
         onUpdateLabelPos={onUpdateLabelPos}
+        onSelectPoint={vi.fn()}
         {...DEFAULT}
       />
     )
@@ -200,5 +210,70 @@ describe("LabelEditOverlay", () => {
     // ArrowLeft at x=0 stays clamped at 0
     fireEvent.keyDown(grip, { key: "ArrowLeft" })
     expect(onUpdateLabelPos).toHaveBeenLastCalledWith("p1", 0, 50)
+  })
+
+  it("gives the input at least a 10ch min width for empty/short labels", () => {
+    const points = [makePoint("p1", { label: { text: "" } })]
+    const { getByRole } = render(
+      <LabelEditOverlay
+        points={points}
+        onUpdateLabelText={vi.fn()}
+        onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
+        {...DEFAULT}
+      />
+    )
+    expect((getByRole("textbox") as HTMLInputElement).style.width).toBe("10ch")
+  })
+
+  it("selects the point when its input is focused", () => {
+    const onSelectPoint = vi.fn()
+    const points = [makePoint("p1")]
+    const { getByRole } = render(
+      <LabelEditOverlay
+        points={points}
+        onUpdateLabelText={vi.fn()}
+        onUpdateLabelPos={vi.fn()}
+        onSelectPoint={onSelectPoint}
+        {...DEFAULT}
+      />
+    )
+    fireEvent.focus(getByRole("textbox"))
+    expect(onSelectPoint).toHaveBeenCalledWith("p1")
+  })
+
+  it("calls onLabelDragEnd on pointer up with the label's current position", () => {
+    const onLabelDragEnd = vi.fn()
+    const points = [makePoint("p1", { label: { x: 100, y: 100 } })]
+    const { getByLabelText } = render(
+      <LabelEditOverlay
+        points={points}
+        onUpdateLabelText={vi.fn()}
+        onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
+        onLabelDragEnd={onLabelDragEnd}
+        {...DEFAULT}
+      />
+    )
+    const grip = getByLabelText("Drag label 1")
+    fireEvent.pointerDown(grip, { pointerId: 1, clientX: 200, clientY: 300 })
+    fireEvent.pointerUp(grip, { pointerId: 1, clientX: 240, clientY: 320 })
+    expect(onLabelDragEnd).toHaveBeenCalledWith("p1", 100, 100)
+  })
+
+  it("centers the drag grip vertically against the label height", () => {
+    const points = [makePoint("p1", { label: { fontSize: 24 } })]
+    const { getByLabelText } = render(
+      <LabelEditOverlay
+        points={points}
+        onUpdateLabelText={vi.fn()}
+        onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
+        {...DEFAULT}
+      />
+    )
+    const grip = getByLabelText("Drag label 1")
+    expect(grip.style.top).toBe("50%")
+    expect(grip.style.transform).toBe("translateY(-50%)")
   })
 })

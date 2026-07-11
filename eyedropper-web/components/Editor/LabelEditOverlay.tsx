@@ -11,15 +11,24 @@ interface Props {
   scale: number
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
+  onSelectPoint: (id: string) => void
+  onLabelDragEnd?: (id: string, x: number, y: number) => void
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max)
 
 // HTML text-input overlay shown in EDIT mode (labelEditMode === true). Konva has
 // no native editable text, so the standard recipe is absolutely-positioned HTML
-// inputs on top of the canvas. Each label is the controlled <input> (typing) plus
-// a drag-grip beside it (free dragging). Position comes from the stored
-// label.x/label.y (source of truth), converted to screen space via `scale`.
+// inputs on top of the canvas.
+//
+// The input is deliberately INVISIBLE (transparent text/background/border): the
+// real Konva LabelLayer stays mounted underneath in edit mode and IS the live
+// preview, so what the artist sees while typing is pixel-identical to the export.
+// The input only captures keystrokes and shows the caret; it is positioned and
+// sized to match the Konva Text exactly (origin at label.x/label.y, fontSize and
+// family scaled to screen space) so the caret tracks the visible glyphs. A
+// drag-grip sits just OUTSIDE the text origin (absolute, left of it) so it never
+// shifts the glyphs — the old in-flow grip was the cause of the position drift.
 export default function LabelEditOverlay({
   points,
   canvasWidth,
@@ -27,6 +36,8 @@ export default function LabelEditOverlay({
   scale,
   onUpdateLabelText,
   onUpdateLabelPos,
+  onSelectPoint,
+  onLabelDragEnd,
 }: Props) {
   // Active drag: maps the captured pointerId to the label's start position so
   // onPointerMove can compute the new (clamped) canvas-space coords.
@@ -47,6 +58,10 @@ export default function LabelEditOverlay({
         if (p.swatchOrder === null) return null
         if (!p.label.visible) return null
 
+        // Screen-space font size — the Konva Text renders at label.fontSize in
+        // canvas space, so the input must scale by the same factor to line up.
+        const screenFont = p.label.fontSize * scale
+
         return (
           <div
             key={p.id}
@@ -54,12 +69,11 @@ export default function LabelEditOverlay({
               position: "absolute",
               left: p.label.x * scale,
               top: p.label.y * scale,
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
               pointerEvents: "auto",
             }}
           >
+            {/* Drag grip — absolutely placed to the LEFT of the text origin so it
+                is outside the text flow and never displaces the glyphs. */}
             <span
               role="button"
               tabIndex={0}
@@ -86,6 +100,12 @@ export default function LabelEditOverlay({
               }}
               onPointerUp={(e) => {
                 e.currentTarget.releasePointerCapture?.(e.pointerId)
+                const d = dragRef.current
+                // p.label.x/y (not a ref) is intentional: every pointermove has
+                // written the snapped position back to state, so this render's
+                // p.label already holds the last drag position. The editor's end
+                // handler re-snaps it (idempotent) and clears the guides.
+                if (d) onLabelDragEnd?.(d.id, p.label.x, p.label.y)
                 dragRef.current = null
               }}
               // Keyboard nudge: the grip is announced as a button, so it must be
@@ -105,10 +125,14 @@ export default function LabelEditOverlay({
                 onUpdateLabelPos(p.id, nx, ny)
               }}
               style={{
+                position: "absolute",
+                right: "100%",
+                top: "50%",
+                transform: "translateY(-50%)",
+                marginRight: 4,
                 cursor: "move",
                 fontSize: 12,
                 lineHeight: 1,
-                padding: "1px 2px",
                 color: "var(--color-accent)",
                 userSelect: "none",
                 touchAction: "none",
@@ -122,16 +146,27 @@ export default function LabelEditOverlay({
               aria-label={`Label text for point ${i + 1}`}
               value={p.label.text}
               onChange={(e) => onUpdateLabelText(p.id, e.target.value)}
+              onFocus={() => onSelectPoint(p.id)}
+              // Transparent text/background/border and zero box padding so the
+              // input occupies the exact footprint of the Konva Text beneath it;
+              // only the caret is visible. Width tracks the content (approx via ch)
+              // so the click target hugs the glyphs and inputs don't overlap.
+              // A white outline (drawn OUTSIDE the box) makes each input visible
+              // in edit mode without shifting the glyphs a border would.
               style={{
-                pointerEvents: "auto",
-                minWidth: 80,
-                padding: "1px 4px",
-                fontSize: 12,
+                display: "block",
+                margin: 0,
+                padding: 0,
+                border: "none",
+                outline: "1px solid #ffffff",
+                background: "transparent",
+                color: "transparent",
+                caretColor: "var(--color-accent)",
+                fontSize: screenFont,
                 fontFamily: resolveFontFamily(p.label.fontFamily),
-                background: "rgba(255, 255, 255, 0.85)",
-                border: "1px solid var(--color-accent)",
-                borderRadius: 3,
-                color: "#1a1a1a",
+                lineHeight: 1,
+                height: screenFont,
+                width: `${Math.max(p.label.text.length, 10)}ch`,
               }}
             />
           </div>

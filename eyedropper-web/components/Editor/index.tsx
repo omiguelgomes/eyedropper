@@ -9,12 +9,13 @@ import { sampleColor } from "@/lib/color-sample"
 import { assignSwatchLayout, resolveSwatchOverlap, computeSwatchSnap } from "@/lib/swatch-layout"
 import type { SnapGuide, DistributionGuide } from "@/lib/swatch-layout"
 import { clampToImage } from "@/lib/drag-utils"
-import { applyFieldToAll } from "@/lib/apply-to-all"
 import { triggerDownload } from "@/lib/download"
 import { loadStyles } from "@/lib/styles"
 import type { Style } from "@/lib/styles"
 import { getSwatchPos } from "./EyedropperLayer"
 import { getLabelPosition } from "@/lib/label-layout"
+import { measureLabelWidth } from "@/lib/measure-text"
+import { computeLabelSnap, type LabelBox } from "@/lib/label-snap"
 import Canvas from "./Canvas"
 import ContextMenu from "./ContextMenu"
 import PointPanel from "./PointPanel"
@@ -62,6 +63,10 @@ let pointIdCounter = 0
 // Snap pull distance in on-screen pixels; converted to canvas space per-frame
 // using the live scale so it feels constant regardless of image resolution.
 const SNAP_SCREEN_PX = 8
+
+// Label presentation fields that a single edit broadcasts to EVERY label;
+// all other label fields (text/visibility/position) stay scoped to one point.
+const LABEL_BROADCAST_KEYS: readonly string[] = ["fontFamily", "fontSize", "color"]
 
 // Convert a canvas-space click into an in-band image-space point, or null if the
 // click landed in the 9:16 letterbox padding (outside the drawn image). Exported
@@ -151,8 +156,10 @@ export function seedNewLabels(
   return after.map((p) => {
     if (p.swatchOrder === null || alreadyLaidOut.has(p.id)) return p
     const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
+    const w = measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily)
     const anchor = getLabelPosition(
-      swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius, canvasWidth, canvasHeight
+      swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius,
+      canvasWidth, canvasHeight, w, p.label.fontSize
     )
     return { ...p, label: { ...p.label, x: anchor.x, y: anchor.y } }
   })
@@ -197,23 +204,31 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   const [distribution, setDistribution] = useState<DistributionGuide[]>([])
   // Pastel-swatch textures (Story 3.5), loaded once and shared across every
   // swatch. Hydration-safe (browser Image in an effect, init null, cleanup nulls
-  // handlers) per docs/project-context.md. Only the pastel style uses them; the
-  // two PNGs are tiny (~24KB) so loading unconditionally is fine, and the layer
-  // falls back to the flat Circle until they decode.
+  // handlers) per docs/project-context.md. Only the pastel styles use them; the
+  // PNGs are tiny so loading unconditionally is fine, and the layer falls back to
+  // the flat Circle until they decode. Both ring variants are keyed by their
+  // public path so the active style's `borderTexture` resolves to the right one;
+  // the ring-less "pastel" style has no borderTexture and renders pencil only.
   const [pencilTexture, setPencilTexture] = useState<HTMLImageElement | null>(null)
-  const [borderTexture, setBorderTexture] = useState<HTMLImageElement | null>(null)
+  const [borderTextures, setBorderTextures] = useState<Record<string, HTMLImageElement>>({})
   useEffect(() => {
     const pencil = new window.Image()
     pencil.onload = () => setPencilTexture(pencil)
     pencil.src = "/textures/swatch-pencil.png"
-    const border = new window.Image()
-    border.onload = () => setBorderTexture(border)
-    border.src = "/textures/swatch-border.png"
+    const borderPaths = ["/textures/swatch-border.png", "/textures/swatch-border-thin.png"]
+    const borders = borderPaths.map((src) => {
+      const im = new window.Image()
+      im.onload = () => setBorderTextures((prev) => ({ ...prev, [src]: im }))
+      im.src = src
+      return im
+    })
     return () => {
       pencil.onload = null
-      border.onload = null
+      borders.forEach((im) => (im.onload = null))
     }
   }, [])
+  // The decoded ring for the ACTIVE style (null for the ring-less "pastel").
+  const borderTexture = style.borderTexture ? borderTextures[style.borderTexture] ?? null : null
 
   const [interactionMode, setInteractionMode] = useState<"select" | "add">("select")
   const [contextMenu, setContextMenu] = useState<{ pointId: string; x: number; y: number } | null>(null)
@@ -573,9 +588,10 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           const swatchPos = getSwatchPos(
             p, layout.canvasWidth, layout.canvasHeight, style.swatchRadius
           )
+          const w = measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily)
           const labelPos = getLabelPosition(
             swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius,
-            layout.canvasWidth, layout.canvasHeight
+            layout.canvasWidth, layout.canvasHeight, w, p.label.fontSize
           )
           return { ...p, label: { ...p.label, x: labelPos.x, y: labelPos.y } }
         })
@@ -586,28 +602,81 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
 
   const handleUpdateLabel = useCallback(
     (id: string, patch: Partial<EyedropperPoint["label"]>) => {
+      // Presentation fields (font/size/color) apply to EVERY label by default;
+      // text/visibility/position stay scoped to the one point.
       setPoints((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, ...patch } } : p))
+        prev.map((p) => {
+          const isTarget = p.id === id
+          const next = { ...p.label }
+          for (const [k, v] of Object.entries(patch)) {
+            if (LABEL_BROADCAST_KEYS.includes(k)) {
+              ;(next as Record<string, unknown>)[k] = v
+            } else if (isTarget) {
+              ;(next as Record<string, unknown>)[k] = v
+            }
+          }
+          return { ...p, label: next }
+        })
       )
     },
     []
   )
 
-  const handleUpdateLabelPos = useCallback(
-    (id: string, x: number, y: number) => handleUpdateLabel(id, { x, y }),
-    [handleUpdateLabel]
+  // Snap a dragged label against OTHER visible labels' boxes and its own marker,
+  // then write the snapped origin and surface the alignment guides. Reuses the
+  // swatch snapGuides state + Konva SnapGuideLayer. Reads live layout/scale from
+  // refs so the callback stays stable (deps []). Labels snap to other labels and
+  // to their own marker only — never to other markers/swatches.
+  const snapLabel = useCallback((id: string, x: number, y: number) => {
+    const layout = canvasLayoutRef.current
+    const current = pointsRef.current
+    const dragged = current.find((p) => p.id === id)
+    if (!layout || !dragged) return { x, y, guides: [] as SnapGuide[] }
+    const width = measureLabelWidth(dragged.label.text, dragged.label.fontSize, dragged.label.fontFamily)
+    const height = dragged.label.fontSize
+    const others: LabelBox[] = current
+      .filter(
+        (p) =>
+          p.id !== id &&
+          p.swatchOrder !== null &&
+          p.label.visible &&
+          p.label.text !== ""
+      )
+      .map((p) => ({
+        x: p.label.x,
+        y: p.label.y,
+        width: measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily),
+        height: p.label.fontSize,
+      }))
+    const marker = { x: dragged.x, y: dragged.y + layout.imageOffsetY }
+    return computeLabelSnap({
+      box: { x, y, width, height },
+      others,
+      marker,
+      threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
+    })
+  }, [])
+
+  const handleLabelDragMove = useCallback(
+    (id: string, x: number, y: number) => {
+      const snapped = snapLabel(id, x, y)
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, x: snapped.x, y: snapped.y } } : p))
+      )
+      setSnapGuides(snapped.guides)
+    },
+    [snapLabel]
   )
 
-  // Broadcast the selected point's font/size/color to every point (Story 3.4).
-  // Reads the selected value from `prev` inside the updater (live array, not the
-  // selectedPoint render closure), depending only on selectedPointId so identity
-  // is stable. Pure label styling — no swatch-layout re-run (it keys on marker
-  // coords + swatchSide only). See lib/apply-to-all.ts.
-  const handleApplyToAll = useCallback(
-    (field: "fontFamily" | "fontSize" | "color") => {
-      setPoints((prev) => applyFieldToAll(prev, selectedPointId, field))
+  const handleLabelDragEnd = useCallback(
+    (id: string, x: number, y: number) => {
+      const snapped = snapLabel(id, x, y)
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, x: snapped.x, y: snapped.y } } : p))
+      )
+      setSnapGuides([])
     },
-    [selectedPointId]
+    [snapLabel]
   )
 
   // Capture the Konva stage as a 9:16 JPEG and download it. Reads live layout
@@ -841,7 +910,8 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             onSelectPoint={handleSelectPoint}
             onDeselect={handleDeselect}
             onUpdateLabelText={(id, text) => handleUpdateLabel(id, { text })}
-            onUpdateLabelPos={handleUpdateLabelPos}
+            onUpdateLabelPos={handleLabelDragMove}
+            onLabelDragEnd={handleLabelDragEnd}
           />
         ) : (
           <p className="text-sm text-[var(--color-text-secondary)]">Loading…</p>
@@ -857,7 +927,6 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           <LabelPanel
             label={selectedPoint.label}
             onUpdate={(patch) => handleUpdateLabel(selectedPoint.id, patch)}
-            onApplyToAll={handleApplyToAll}
           />
         )}
         {selectedPoint && !labelEditMode && (
