@@ -64,6 +64,10 @@ let pointIdCounter = 0
 // using the live scale so it feels constant regardless of image resolution.
 const SNAP_SCREEN_PX = 8
 
+// Label presentation fields that a single edit broadcasts to EVERY label;
+// all other label fields (text/visibility/position) stay scoped to one point.
+const LABEL_BROADCAST_KEYS: readonly string[] = ["fontFamily", "fontSize", "color"]
+
 // Convert a canvas-space click into an in-band image-space point, or null if the
 // click landed in the 9:16 letterbox padding (outside the drawn image). Exported
 // for unit testing the AC2 band-guard without standing up the whole EditorShell.
@@ -600,13 +604,12 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     (id: string, patch: Partial<EyedropperPoint["label"]>) => {
       // Presentation fields (font/size/color) apply to EVERY label by default;
       // text/visibility/position stay scoped to the one point.
-      const broadcastKeys = ["fontFamily", "fontSize", "color"] as const
       setPoints((prev) =>
         prev.map((p) => {
           const isTarget = p.id === id
           const next = { ...p.label }
           for (const [k, v] of Object.entries(patch)) {
-            if ((broadcastKeys as readonly string[]).includes(k)) {
+            if (LABEL_BROADCAST_KEYS.includes(k)) {
               ;(next as Record<string, unknown>)[k] = v
             } else if (isTarget) {
               ;(next as Record<string, unknown>)[k] = v

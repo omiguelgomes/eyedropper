@@ -101,6 +101,10 @@ export default function LabelEditOverlay({
               onPointerUp={(e) => {
                 e.currentTarget.releasePointerCapture?.(e.pointerId)
                 const d = dragRef.current
+                // p.label.x/y (not a ref) is intentional: every pointermove has
+                // written the snapped position back to state, so this render's
+                // p.label already holds the last drag position. The editor's end
+                // handler re-snaps it (idempotent) and clears the guides.
                 if (d) onLabelDragEnd?.(d.id, p.label.x, p.label.y)
                 dragRef.current = null
               }}
