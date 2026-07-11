@@ -242,6 +242,25 @@ describe("LabelEditOverlay", () => {
     expect(onSelectPoint).toHaveBeenCalledWith("p1")
   })
 
+  it("calls onLabelDragEnd on pointer up with the label's current position", () => {
+    const onLabelDragEnd = vi.fn()
+    const points = [makePoint("p1", { label: { x: 100, y: 100 } })]
+    const { getByLabelText } = render(
+      <LabelEditOverlay
+        points={points}
+        onUpdateLabelText={vi.fn()}
+        onUpdateLabelPos={vi.fn()}
+        onSelectPoint={vi.fn()}
+        onLabelDragEnd={onLabelDragEnd}
+        {...DEFAULT}
+      />
+    )
+    const grip = getByLabelText("Drag label 1")
+    fireEvent.pointerDown(grip, { pointerId: 1, clientX: 200, clientY: 300 })
+    fireEvent.pointerUp(grip, { pointerId: 1, clientX: 240, clientY: 320 })
+    expect(onLabelDragEnd).toHaveBeenCalledWith("p1", 100, 100)
+  })
+
   it("centers the drag grip vertically against the label height", () => {
     const points = [makePoint("p1", { label: { fontSize: 24 } })]
     const { getByLabelText } = render(

@@ -43,6 +43,7 @@ interface CanvasProps {
   onDeselect: () => void
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
+  onLabelDragEnd: (id: string, x: number, y: number) => void
 }
 
 export default function Canvas({
@@ -74,6 +75,7 @@ export default function Canvas({
   onDeselect,
   onUpdateLabelText,
   onUpdateLabelPos,
+  onLabelDragEnd,
 }: CanvasProps) {
   const scale = displayWidth / canvasLayout.canvasWidth
 
@@ -186,6 +188,8 @@ export default function Canvas({
         scale={scale}
         onUpdateLabelText={onUpdateLabelText}
         onUpdateLabelPos={onUpdateLabelPos}
+        onLabelDragEnd={onLabelDragEnd}
+        onSelectPoint={onSelectPoint}
       />
     )}
     </div>

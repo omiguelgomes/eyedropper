@@ -15,6 +15,7 @@ import type { Style } from "@/lib/styles"
 import { getSwatchPos } from "./EyedropperLayer"
 import { getLabelPosition } from "@/lib/label-layout"
 import { measureLabelWidth } from "@/lib/measure-text"
+import { computeLabelSnap, type LabelBox } from "@/lib/label-snap"
 import Canvas from "./Canvas"
 import ContextMenu from "./ContextMenu"
 import PointPanel from "./PointPanel"
@@ -618,9 +619,61 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     []
   )
 
-  const handleUpdateLabelPos = useCallback(
-    (id: string, x: number, y: number) => handleUpdateLabel(id, { x, y }),
-    [handleUpdateLabel]
+  // Snap a dragged label against OTHER visible labels' boxes and its own marker,
+  // then write the snapped origin and surface the alignment guides. Reuses the
+  // swatch snapGuides state + Konva SnapGuideLayer. Reads live layout/scale from
+  // refs so the callback stays stable (deps []). Labels snap to other labels and
+  // to their own marker only — never to other markers/swatches.
+  const snapLabel = useCallback((id: string, x: number, y: number) => {
+    const layout = canvasLayoutRef.current
+    const current = pointsRef.current
+    const dragged = current.find((p) => p.id === id)
+    if (!layout || !dragged) return { x, y, guides: [] as SnapGuide[] }
+    const width = measureLabelWidth(dragged.label.text, dragged.label.fontSize, dragged.label.fontFamily)
+    const height = dragged.label.fontSize
+    const others: LabelBox[] = current
+      .filter(
+        (p) =>
+          p.id !== id &&
+          p.swatchOrder !== null &&
+          p.label.visible &&
+          p.label.text !== ""
+      )
+      .map((p) => ({
+        x: p.label.x,
+        y: p.label.y,
+        width: measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily),
+        height: p.label.fontSize,
+      }))
+    const marker = { x: dragged.x, y: dragged.y + layout.imageOffsetY }
+    return computeLabelSnap({
+      box: { x, y, width, height },
+      others,
+      marker,
+      threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
+    })
+  }, [])
+
+  const handleLabelDragMove = useCallback(
+    (id: string, x: number, y: number) => {
+      const snapped = snapLabel(id, x, y)
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, x: snapped.x, y: snapped.y } } : p))
+      )
+      setSnapGuides(snapped.guides)
+    },
+    [snapLabel]
+  )
+
+  const handleLabelDragEnd = useCallback(
+    (id: string, x: number, y: number) => {
+      const snapped = snapLabel(id, x, y)
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, x: snapped.x, y: snapped.y } } : p))
+      )
+      setSnapGuides([])
+    },
+    [snapLabel]
   )
 
   // Capture the Konva stage as a 9:16 JPEG and download it. Reads live layout
@@ -854,7 +907,8 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             onSelectPoint={handleSelectPoint}
             onDeselect={handleDeselect}
             onUpdateLabelText={(id, text) => handleUpdateLabel(id, { text })}
-            onUpdateLabelPos={handleUpdateLabelPos}
+            onUpdateLabelPos={handleLabelDragMove}
+            onLabelDragEnd={handleLabelDragEnd}
           />
         ) : (
           <p className="text-sm text-[var(--color-text-secondary)]">Loading…</p>

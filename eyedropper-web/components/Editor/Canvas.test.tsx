@@ -104,6 +104,7 @@ function makeProps(overrides?: Partial<Parameters<typeof Canvas>[0]>) {
     onDeselect: vi.fn(),
     onUpdateLabelText: vi.fn(),
     onUpdateLabelPos: vi.fn(),
+    onLabelDragEnd: vi.fn(),
     ...overrides,
   }
 }

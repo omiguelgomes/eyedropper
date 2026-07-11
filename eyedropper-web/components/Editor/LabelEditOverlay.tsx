@@ -12,6 +12,7 @@ interface Props {
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
   onSelectPoint: (id: string) => void
+  onLabelDragEnd?: (id: string, x: number, y: number) => void
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max)
@@ -36,6 +37,7 @@ export default function LabelEditOverlay({
   onUpdateLabelText,
   onUpdateLabelPos,
   onSelectPoint,
+  onLabelDragEnd,
 }: Props) {
   // Active drag: maps the captured pointerId to the label's start position so
   // onPointerMove can compute the new (clamped) canvas-space coords.
@@ -98,6 +100,8 @@ export default function LabelEditOverlay({
               }}
               onPointerUp={(e) => {
                 e.currentTarget.releasePointerCapture?.(e.pointerId)
+                const d = dragRef.current
+                if (d) onLabelDragEnd?.(d.id, p.label.x, p.label.y)
                 dragRef.current = null
               }}
               // Keyboard nudge: the grip is announced as a button, so it must be
