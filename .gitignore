@@ -33,3 +33,6 @@ next-env.d.ts
 
 # uploads (ephemeral)
 /tmp/
+
+# python venv (SLIC script)
+.venv/
