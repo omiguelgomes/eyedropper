@@ -2,21 +2,27 @@ import { describe, it, expect, vi } from "vitest"
 
 // next/font/google is a build-time transform that fails under Vitest. Its exports
 // are all called the same way (options object → { style.fontFamily, variable }),
-// so a Proxy returns a deterministic stub for EVERY font name the module imports,
-// keeping this mock stable as the font list grows.
-vi.mock("next/font/google", () => ({
-  __esModule: true,
-  default: undefined,
-  ...new Proxy(
-    {},
-    {
-      get: (_t, name: string) => () => ({
-        style: { fontFamily: String(name) },
-        variable: `--font-${String(name).toLowerCase()}`,
-      }),
-    }
-  ),
-}))
+// so we stub each font name fonts.ts imports with a deterministic factory. Vitest 4
+// validates accessed exports against the mock's real enumerable keys, so a Proxy
+// (no own keys) won't work — this list must track fonts.ts's import list.
+vi.mock("next/font/google", () => {
+  const NAMES = [
+    "Cormorant_Garamond", "Playfair_Display", "DM_Serif_Display", "Libre_Baskerville",
+    "EB_Garamond", "Lora", "Merriweather", "Crimson_Text",
+    "Caveat", "Dancing_Script", "Pacifico", "Satisfy", "Sacramento",
+    "Shadows_Into_Light", "Kalam", "Gochi_Hand",
+    "Inter", "Montserrat", "Poppins", "Raleway", "Work_Sans", "Nunito", "Quicksand",
+    "Bebas_Neue", "Abril_Fatface", "Lobster", "Righteous", "Comfortaa", "Cinzel", "Archivo_Black",
+  ]
+  const mod: Record<string, unknown> = { __esModule: true, default: undefined }
+  for (const name of NAMES) {
+    mod[name] = () => ({
+      style: { fontFamily: name },
+      variable: `--font-${name.toLowerCase()}`,
+    })
+  }
+  return mod
+})
 
 import { FONT_OPTIONS, FONT_CATEGORIES, fontVariables, resolveFontFamily } from "./fonts"
 
