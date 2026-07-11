@@ -42,7 +42,10 @@
       "Bash(sips --cropToHeightWidth 560 420 --cropOffset 230 540 \"/Users/miguel.gomes/Downloads/WhatsApp Image 2026-06-11 at 12.50.04.jpeg\" --out /tmp/_sample_crop.jpg)",
       "Bash(perl -0pi -e 's/^\\\\s*style=\\\\{styleByName\\\\\\(\"[^\"]+\"\\\\\\)\\\\}\\\\n//mg' components/Editor/LabelEditOverlay.test.tsx)",
       "Bash(timeout 300 npm run build)",
-      "Bash(python3 _bmad/scripts/resolve_customization.py --skill .claude/skills/bmad-dev-story --key workflow.on_complete)"
+      "Bash(python3 _bmad/scripts/resolve_customization.py --skill .claude/skills/bmad-dev-story --key workflow.on_complete)",
+      "Bash(.venv/bin/python3 -c \"import PIL, numpy; print\\('Pillow', PIL.__version__, 'numpy', numpy.__version__\\)\")",
+      "Bash(.venv/bin/python3 gen_swatch_texture.py)",
+      "Bash(.venv/bin/python3 -c ' *)"
     ]
   }
 }

@@ -26,6 +26,7 @@ function makePoint(
     swatchOrder: 300,
     swatchX: null,
     swatchY: null,
+    connectorMid: null,
     label: {
       text: "Crimson",
       visible: true,

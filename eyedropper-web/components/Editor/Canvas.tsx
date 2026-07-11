@@ -34,6 +34,9 @@ interface CanvasProps {
   onMarkerDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onSwatchDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  onConnectorDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  onConnectorDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  selectedPointId: string | null
   onAddPoint: (canvasX: number, canvasY: number) => void
   onRequestRemove: (id: string, clientX: number, clientY: number) => void
   onSelectPoint: (id: string) => void
@@ -62,6 +65,9 @@ export default function Canvas({
   onMarkerDragEnd,
   onSwatchDragMove,
   onSwatchDragEnd,
+  onConnectorDragMove,
+  onConnectorDragEnd,
+  selectedPointId,
   onAddPoint,
   onRequestRemove,
   onSelectPoint,
@@ -144,6 +150,10 @@ export default function Canvas({
         onMarkerDragEnd={onMarkerDragEnd}
         onSwatchDragMove={onSwatchDragMove}
         onSwatchDragEnd={onSwatchDragEnd}
+        onConnectorDragMove={onConnectorDragMove}
+        onConnectorDragEnd={onConnectorDragEnd}
+        labelEditMode={labelEditMode}
+        selectedPointId={selectedPointId}
         onRequestRemove={onRequestRemove}
         onSelectPoint={onSelectPoint}
       />

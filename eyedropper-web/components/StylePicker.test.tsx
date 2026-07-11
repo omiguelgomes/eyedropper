@@ -16,14 +16,14 @@ import StylePicker from "./StylePicker"
 const STYLES = loadStyles()
 
 describe("StylePicker", () => {
-  it("renders one button per style (5 built-in styles incl. pastel)", () => {
+  it("renders one button per style (4 built-in styles incl. pastel)", () => {
     const { getAllByRole } = render(
-      <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={vi.fn()} />
+      <StylePicker styles={STYLES} activeStyleName="float" onSelect={vi.fn()} />
     )
     const buttons = getAllByRole("button")
-    expect(buttons).toHaveLength(5)
+    expect(buttons).toHaveLength(4)
     const names = buttons.map((b) => b.textContent)
-    expect(names).toEqual(["float_clean", "float", "grid", "minimal", "pastel"])
+    expect(names).toEqual(["float", "grid", "minimal", "pastel"])
   })
 
   it("marks only the active style button aria-pressed='true'", () => {
@@ -32,7 +32,6 @@ describe("StylePicker", () => {
     )
     const button = (name: string) => getByText(name).closest("button")!
     expect(button("grid").getAttribute("aria-pressed")).toBe("true")
-    expect(button("float_clean").getAttribute("aria-pressed")).toBe("false")
     expect(button("float").getAttribute("aria-pressed")).toBe("false")
     expect(button("minimal").getAttribute("aria-pressed")).toBe("false")
   })
@@ -50,7 +49,7 @@ describe("StylePicker", () => {
   it("clicking a non-active button calls onSelect with that full style object", () => {
     const onSelect = vi.fn()
     const { getByText } = render(
-      <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={onSelect} />
+      <StylePicker styles={STYLES} activeStyleName="float" onSelect={onSelect} />
     )
     fireEvent.click(getByText("grid").closest("button")!)
     expect(onSelect).toHaveBeenCalledTimes(1)
@@ -63,7 +62,7 @@ describe("StylePicker", () => {
   it("pastel is selectable and highlights when active (Story 3.5 AC1)", () => {
     const onSelect = vi.fn()
     const { getByText, rerender } = render(
-      <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={onSelect} />
+      <StylePicker styles={STYLES} activeStyleName="float" onSelect={onSelect} />
     )
     const pastelBtn = getByText("pastel").closest("button")!
     expect(pastelBtn.getAttribute("aria-pressed")).toBe("false")
@@ -79,11 +78,10 @@ describe("StylePicker", () => {
 
   it("passes each style down to its thumbnail", () => {
     const { getAllByTestId } = render(
-      <StylePicker styles={STYLES} activeStyleName="float_clean" onSelect={vi.fn()} />
+      <StylePicker styles={STYLES} activeStyleName="float" onSelect={vi.fn()} />
     )
     const thumbs = getAllByTestId("thumbnail")
     expect(thumbs.map((t) => t.getAttribute("data-style"))).toEqual([
-      "float_clean",
       "float",
       "grid",
       "minimal",

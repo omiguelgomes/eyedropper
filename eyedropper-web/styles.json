@@ -1,17 +1,5 @@
 [
   {
-    "name": "float_clean",
-    "swatchRadius": 48,
-    "swatchBorderColor": "#ffffff",
-    "swatchBorderWidth": 3,
-    "connectorType": "curved",
-    "connectorColor": "#1e1e1e",
-    "connectorWidth": 2,
-    "markerStyle": "ring",
-    "markerColor": "#ffffff",
-    "labelPosition": "none"
-  },
-  {
     "name": "float",
     "swatchRadius": 48,
     "swatchBorderColor": "#ffffff",

@@ -12,6 +12,7 @@ function makePoint(id: string, overrides: Partial<EyedropperPoint["label"]> = {}
     swatchOrder: null,
     swatchX: null,
     swatchY: null,
+    connectorMid: null,
     label: {
       text: `label-${id}`,
       visible: true,

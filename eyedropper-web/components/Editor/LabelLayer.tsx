@@ -14,7 +14,7 @@ interface Props {
 
 // Static Konva text labels shown in DISPLAY mode (labelEditMode === false).
 // Only styles whose labelPosition is "beside" or "below" show labels; "none"
-// (float_clean, minimal) renders nothing. Position comes from the stored
+// (minimal) renders nothing. Position comes from the stored
 // label.x/label.y (the source of truth — seeded on edit-mode entry and updated
 // by dragging), so labels stay where the artist dragged them.
 export default function LabelLayer({ points, style }: Props) {

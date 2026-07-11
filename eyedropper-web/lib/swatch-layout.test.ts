@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { assignSwatchLayout, redistributeOnEdge, placeSwatchOnEdge, resolveSwatchOverlap, computeSwatchSnap, computeEqualIntervalChain } from "./swatch-layout"
+import { assignSwatchLayout, redistributeOnEdge, placeSwatchOnEdge, resolveSwatchOverlap, computeSwatchSnap, computeEqualIntervalChain, computeConnectorGeometry, getCurvedMidpoint } from "./swatch-layout"
 import type { EyedropperPoint } from "./types"
 
 function makePoint(
@@ -20,6 +20,7 @@ function makePoint(
     swatchOrder,
     swatchX,
     swatchY,
+    connectorMid: null,
     label: { text: "", visible: true, x, y, fontSize: 16, fontFamily: "serif", color: "#000" },
   }
 }
@@ -825,5 +826,106 @@ describe("computeEqualIntervalChain (Story 5.3)", () => {
     expect(
       computeEqualIntervalChain({ raw: 200, alignedCoords: [], threshold: THRESH })
     ).toBeNull()
+  })
+})
+
+describe("getCurvedMidpoint (Story 5.4 — moved from EyedropperLayer)", () => {
+  // swatch (100,100) → marker (300,300); geometric midpoint (200,200), offset 40.
+  const args = [100, 100, 300, 300] as const
+
+  it("offsets left by −x", () => {
+    expect(getCurvedMidpoint(...args, "left")).toEqual([160, 200])
+  })
+  it("offsets right by +x", () => {
+    expect(getCurvedMidpoint(...args, "right")).toEqual([240, 200])
+  })
+  it("offsets top by −y", () => {
+    expect(getCurvedMidpoint(...args, "top")).toEqual([200, 160])
+  })
+  it("offsets bottom by +y", () => {
+    expect(getCurvedMidpoint(...args, "bottom")).toEqual([200, 240])
+  })
+  it("no offset for auto/unknown side (plain midpoint)", () => {
+    expect(getCurvedMidpoint(...args, "auto")).toEqual([200, 200])
+  })
+})
+
+describe("computeConnectorGeometry (Story 5.4)", () => {
+  const swatch = { x: 100, y: 100 }
+  const marker = { x: 300, y: 300 }
+
+  it("AC5: un-bent straight → 4-number straight line, not curved, handle at midpoint", () => {
+    const geom = computeConnectorGeometry({
+      swatch, marker, connectorMid: null, connectorType: "straight", swatchSide: "left",
+    })
+    expect(geom.linePoints).toEqual([100, 100, 300, 300])
+    expect(geom.curved).toBe(false)
+    expect(geom.handle).toEqual({ x: 200, y: 200 })
+  })
+
+  it("AC5: un-bent curved → 6-number line through the getCurvedMidpoint offset, curved, handle at that offset", () => {
+    const geom = computeConnectorGeometry({
+      swatch, marker, connectorMid: null, connectorType: "curved", swatchSide: "left",
+    })
+    // Regression guard: the mid must match the pre-move getCurvedMidpoint output.
+    const [mx, my] = getCurvedMidpoint(swatch.x, swatch.y, marker.x, marker.y, "left")
+    expect(geom.linePoints).toEqual([100, 100, mx, my, 300, 300])
+    expect(geom.curved).toBe(true)
+    expect(geom.handle).toEqual({ x: mx, y: my })
+  })
+
+  it("AC2/AC3: bent connector is ALWAYS a 3-point curve through connectorMid — even for a straight style", () => {
+    const mid = { x: 250, y: 120 }
+    for (const connectorType of ["straight", "curved"] as const) {
+      const geom = computeConnectorGeometry({
+        swatch, marker, connectorMid: mid, connectorType, swatchSide: "top",
+      })
+      expect(geom.linePoints).toEqual([100, 100, 250, 120, 300, 300])
+      expect(geom.curved).toBe(true)
+      expect(geom.handle).toEqual(mid)
+    }
+  })
+
+  it("connectorType 'none' → empty line (defensive; caller doesn't render it)", () => {
+    const geom = computeConnectorGeometry({
+      swatch, marker, connectorMid: null, connectorType: "none", swatchSide: "left",
+    })
+    expect(geom.linePoints).toEqual([])
+    expect(geom.curved).toBe(false)
+  })
+
+  it("AC4: with a fixed connectorMid, moving swatch/marker moves only the endpoints — the bend stays put", () => {
+    const mid = { x: 250, y: 120 }
+    const a = computeConnectorGeometry({
+      swatch, marker, connectorMid: mid, connectorType: "curved", swatchSide: "top",
+    })
+    const b = computeConnectorGeometry({
+      swatch: { x: 50, y: 60 }, marker: { x: 400, y: 500 },
+      connectorMid: mid, connectorType: "curved", swatchSide: "top",
+    })
+    // Endpoints differ...
+    expect(b.linePoints[0]).toBe(50)
+    expect(b.linePoints[1]).toBe(60)
+    expect(b.linePoints[4]).toBe(400)
+    expect(b.linePoints[5]).toBe(500)
+    // ...but the mid (indices 2,3) and the handle are unchanged.
+    expect(a.linePoints[2]).toBe(b.linePoints[2])
+    expect(a.linePoints[3]).toBe(b.linePoints[3])
+    expect(b.handle).toEqual(mid)
+  })
+})
+
+describe("connectorMid survives layout re-runs (Story 5.4 AC10)", () => {
+  // assignSwatchLayout spreads {...p} and never touches connectorMid, so a bent
+  // point keeps its bend across add-point / remove-other-point re-layouts.
+  it("assignSwatchLayout preserves connectorMid on every point", () => {
+    const bent = { ...makePoint("bent", 10, 300, "auto"), connectorMid: { x: 55, y: 66 } }
+    const other = makePoint("other", 390, 400, "auto")
+    // add-point style re-layout
+    const afterAdd = assignSwatchLayout([bent, other, makePoint("new", 200, 100)], W, H)
+    expect(afterAdd.find((p) => p.id === "bent")!.connectorMid).toEqual({ x: 55, y: 66 })
+    // remove-other-point style re-layout
+    const afterRemove = assignSwatchLayout([bent, other], W, H)
+    expect(afterRemove.find((p) => p.id === "bent")!.connectorMid).toEqual({ x: 55, y: 66 })
   })
 })

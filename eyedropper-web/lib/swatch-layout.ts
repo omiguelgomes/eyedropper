@@ -199,6 +199,81 @@ export function computeSwatchSnap(input: {
   return { x: outX, y: outY, guides, distribution }
 }
 
+// The auto-curve midpoint for a connector: a fixed 40px perpendicular offset
+// keyed on the swatch's edge side. Moved here from EyedropperLayer (Story 5.4) so
+// computeConnectorGeometry can reuse it and it becomes unit-testable. The math is
+// byte-for-byte identical to the previous in-component version (offset 40, same
+// per-side sign) so un-bent curved connectors render unchanged.
+export function getCurvedMidpoint(
+  sx: number, sy: number,
+  mx: number, my: number,
+  side: string
+): [number, number] {
+  const cx = (sx + mx) / 2
+  const cy = (sy + my) / 2
+  const offset = 40
+  if (side === "left")   return [cx - offset, cy]
+  if (side === "right")  return [cx + offset, cy]
+  if (side === "top")    return [cx, cy - offset]
+  if (side === "bottom") return [cx, cy + offset]
+  return [cx, cy]
+}
+
+// Story 5.4: the connector's rendered geometry. Returns the bend-handle position
+// and the Konva Line `points` array. When `connectorMid` is null the connector
+// looks exactly as it did before this story (straight segment, or the
+// getCurvedMidpoint auto-curve for "curved" styles) and the handle sits at that
+// default midpoint. Once `connectorMid` is set, the artist has explicitly shaped
+// the line: it is ALWAYS drawn as a smooth 3-point curve through that point
+// (regardless of the style's connectorType) and the handle sits at connectorMid.
+// Pure; called once per point per render.
+export function computeConnectorGeometry(input: {
+  swatch: { x: number; y: number }   // canvas-space swatch centre
+  marker: { x: number; y: number }   // canvas-space marker centre (already +imageOffsetY)
+  connectorMid: { x: number; y: number } | null
+  connectorType: "curved" | "straight" | "none"
+  swatchSide: EyedropperPoint["swatchSide"]  // only used for the curved default
+}): { handle: { x: number; y: number }; linePoints: number[]; curved: boolean } {
+  const { swatch, marker, connectorMid, connectorType, swatchSide } = input
+
+  // Defensive: callers gate on connectorType !== "none" and never render this
+  // branch. Return the straight midpoint as a sensible handle, no line.
+  if (connectorType === "none") {
+    return {
+      handle: { x: (swatch.x + marker.x) / 2, y: (swatch.y + marker.y) / 2 },
+      linePoints: [],
+      curved: false,
+    }
+  }
+
+  // Explicitly bent → smooth 3-point curve through the stored bend point.
+  if (connectorMid !== null) {
+    return {
+      handle: connectorMid,
+      linePoints: [swatch.x, swatch.y, connectorMid.x, connectorMid.y, marker.x, marker.y],
+      curved: true,
+    }
+  }
+
+  // Un-bent curved default → reproduce today's perpendicular-offset auto-curve.
+  if (connectorType === "curved") {
+    const [mx, my] = getCurvedMidpoint(swatch.x, swatch.y, marker.x, marker.y, swatchSide)
+    return {
+      handle: { x: mx, y: my },
+      linePoints: [swatch.x, swatch.y, mx, my, marker.x, marker.y],
+      curved: true,
+    }
+  }
+
+  // Un-bent straight default → straight segment (no mid point in the line array);
+  // the handle sits at the geometric midpoint but the line is not yet curved.
+  return {
+    handle: { x: (swatch.x + marker.x) / 2, y: (swatch.y + marker.y) / 2 },
+    linePoints: [swatch.x, swatch.y, marker.x, marker.y],
+    curved: false,
+  }
+}
+
 export function assignSwatchLayout(
   points: EyedropperPoint[],
   canvasWidth: number,

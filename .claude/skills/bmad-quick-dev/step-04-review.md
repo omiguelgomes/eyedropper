@@ -23,10 +23,10 @@ Do NOT `git add` anything — this is read-only inspection.
 
 ### Review
 
-Launch three subagents without conversation context. If no sub-agents are available, generate three review prompt files in `{implementation_artifacts}` — one per reviewer role below — and HALT. Ask the human to run each in a separate session (ideally a different LLM) and paste back the findings.
+Launch three subagents without conversation context. Use a generic subagent type (e.g. `general-purpose` / `claude`) — the reviewer role is a **skill the subagent invokes**, NOT an agent type. Do NOT pass a `bmad-review-*` name as `subagent_type`; that will fail with "Agent type not found". Instead, spawn the generic subagent and have its prompt instruct it to invoke the named skill via the Skill tool on the provided content. If no sub-agents are available, generate three review prompt files in `{implementation_artifacts}` — one per reviewer role below — and HALT. Ask the human to run each in a separate session (ideally a different LLM) and paste back the findings.
 
-- **Blind hunter** — receives `{diff_output}` only. No spec, no context docs, no project access. Invoke via the `bmad-review-adversarial-general` skill.
-- **Edge case hunter** — receives `{diff_output}` and read access to the project. Invoke via the `bmad-review-edge-case-hunter` skill.
+- **Blind hunter** — receives `{diff_output}` only. No spec, no context docs, no project access. Its prompt instructs the subagent to invoke the `bmad-review-adversarial-general` skill (via the Skill tool) on the diff.
+- **Edge case hunter** — receives `{diff_output}` and read access to the project. Its prompt instructs the subagent to invoke the `bmad-review-edge-case-hunter` skill (via the Skill tool) on the diff.
 - **Acceptance auditor** — receives `{diff_output}`, `{spec_file}`, and read access to the project. Must also read the docs listed in `{spec_file}` frontmatter `context`. Checks for violations of acceptance criteria, rules, and principles from the spec and context docs.
 
 ### Classify

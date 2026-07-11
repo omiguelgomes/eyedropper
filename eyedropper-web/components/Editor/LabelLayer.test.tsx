@@ -49,6 +49,7 @@ function makePoint(
     swatchOrder: 300,
     swatchX: null,
     swatchY: null,
+    connectorMid: null,
     label: {
       text: "Crimson",
       visible: true,
@@ -82,14 +83,6 @@ describe("LabelLayer", () => {
       <LabelLayer points={points} style={styleByName("grid")} {...DEFAULT} />
     )
     expect(getAllByTestId("label-text")).toHaveLength(1)
-  })
-
-  it("renders NO Text for a labelPosition 'none' style (float_clean)", () => {
-    const points = [makePoint("p1")]
-    const { queryAllByTestId } = render(
-      <LabelLayer points={points} style={styleByName("float_clean")} {...DEFAULT} />
-    )
-    expect(queryAllByTestId("label-text")).toHaveLength(0)
   })
 
   it("renders NO Text for a labelPosition 'none' style (minimal)", () => {

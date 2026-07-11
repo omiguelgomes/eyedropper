@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-14
-last_updated: 2026-07-01  # 5-3 equal-interval distribution cue → done (code review)
+last_updated: 2026-07-02  # 5-4 draggable connector lines → review
 project: eyedropper
 project_key: NOKEY
 tracking_system: file-system
@@ -72,6 +72,7 @@ development_status:
   3-3-label-dragging-and-per-label-controls: done
   3-4-apply-to-all-label-controls: done
   3-5-pastel-colored-pencil-swatch-style: review
+  3-6-redesign-pastel-swatch-texture: done
   epic-3-retrospective: optional
 
   # Epic 4: Export & Production Cleanup
@@ -85,4 +86,5 @@ development_status:
   5-1-free-floating-swatch-placement: done
   5-2-cad-style-alignment-snapping-and-guides: done
   5-3-equal-interval-distribution-cue: done
+  5-4-draggable-connector-lines: review
   epic-5-retrospective: optional

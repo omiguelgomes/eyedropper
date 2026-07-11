@@ -737,4 +737,34 @@ So that I can keep a freely-composed layout tidy and visually aligned without ma
 **When** the drag ends
 **Then** all guide lines disappear and the swatch stays at its final position; overlap-blocking from Story 5.1 still applies
 
+### Story 5.4: Draggable Connector Lines
+
+As an **artist**,
+I want to grab the line connecting a swatch to its dot and bend it into a curve by dragging a handle,
+so that I can route connectors around my composition and make them look the way I want.
+
+**Acceptance Criteria:**
+
+**Given** I am in Select/drag mode and a point's connector is visible
+**When** I look at the connector
+**Then** a draggable bend handle is shown at the connector's current midpoint (its derived default until moved, its stored bend once moved)
+
+**Given** I drag a connector's bend handle
+**When** the drag updates
+**Then** the connector line bows smoothly through the handle's position, live during the drag
+
+**Given** I release the bend handle
+**When** the drag ends
+**Then** the bend is stored as an absolute canvas-space position on that point and persists across re-renders
+
+**Given** I have bent a connector
+**When** I later drag its swatch or marker
+**Then** the endpoints follow but the bend stays at its stored absolute position (the artist re-tweaks if desired)
+
+**Given** a connector I have never bent
+**When** it renders
+**Then** it looks exactly as today (straight or auto-curved) — no visual change until a handle is dragged
+
+**Note:** Extends Epic 5's "compose freely" theme to connectors. Single absolute bend handle per connector (the connector analogue of Story 5.1's free-floating `swatchX/swatchY`). Grab-anywhere and full bezier S-curves were considered and deferred to potential follow-on stories.
+
 ---

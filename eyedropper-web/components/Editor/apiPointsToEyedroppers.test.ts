@@ -47,6 +47,8 @@ describe("apiPointsToEyedroppers", () => {
     // Story 5.1: new points start edge-laid-out (not detached) → free coords null.
     expect(p.swatchX).toBeNull()
     expect(p.swatchY).toBeNull()
+    // Story 5.4 (AC9): fresh points have no connector bend.
+    expect(p.connectorMid).toBeNull()
     expect(p.label.x).toBe(5)
     expect(p.label.y).toBe(7)
     expect(p.label.text).toBe("")
@@ -116,6 +118,7 @@ describe("claudePointsToEyedroppers", () => {
     expect(p.swatchOrder).toBeNull()
     expect(p.swatchX).toBeNull()
     expect(p.swatchY).toBeNull()
+    expect(p.connectorMid).toBeNull()
     expect(p.label.x).toBe(5)
     expect(p.label.y).toBe(7)
     expect(p.label.visible).toBe(true)

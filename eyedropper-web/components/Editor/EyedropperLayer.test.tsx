@@ -107,11 +107,11 @@ vi.mock("react-konva", async (importOriginal) => {
       />
     ),
     Circle: ({
-      x, y, radius, fill, stroke, draggable, dragBoundFunc,
+      x, y, radius, fill, stroke, draggable, dragBoundFunc, name,
       onDragMove, onDragEnd, onMouseEnter, onMouseLeave, onContextMenu, onClick,
     }: {
       x: number; y: number; radius?: number; fill?: string; stroke?: string
-      draggable?: boolean
+      draggable?: boolean; name?: string
       dragBoundFunc?: DragBoundFunc
       onDragMove?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onDragEnd?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
@@ -125,6 +125,7 @@ vi.mock("react-konva", async (importOriginal) => {
       return (
         <div
           data-testid="circle"
+          data-name={name ?? ""}
           data-x={x} data-y={y} data-radius={radius} data-fill={fill} data-stroke={stroke}
           data-draggable={draggable === true ? "true" : "false"}
           data-has-hover={onMouseEnter ? "true" : "false"}
@@ -223,6 +224,7 @@ function makePoint(
     swatchOrder,
     swatchX,
     swatchY,
+    connectorMid: null,
     label: { text: "", visible: true, x, y, fontSize: 16, fontFamily: "serif", color: "#000" },
   }
 }
@@ -712,6 +714,200 @@ describe("EyedropperLayer", () => {
     for (const circle of getAllByTestId("circle")) {
       expect(circle.getAttribute("data-has-click")).toBe("true")
     }
+  })
+
+  describe("connector bend handle (Story 5.4)", () => {
+    const handles = (getAll: (id: string) => HTMLElement[]) =>
+      getAll("circle").filter((c) => c.getAttribute("data-name") === "connector-handle")
+
+    it("renders a bend handle for the SELECTED point in select mode", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      expect(handles(getAllByTestId)).toHaveLength(1)
+    })
+
+    it("does NOT render a handle for a non-selected point", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="other"
+        />
+      )
+      expect(handles(getAllByTestId)).toHaveLength(0)
+    })
+
+    it("does NOT render a handle in add mode even for the selected point (AC7)", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="add"
+          selectedPointId="p1"
+        />
+      )
+      expect(handles(getAllByTestId)).toHaveLength(0)
+    })
+
+    it("does NOT render a handle in label-edit mode (AC7)", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+          labelEditMode
+        />
+      )
+      expect(handles(getAllByTestId)).toHaveLength(0)
+    })
+
+    it("does NOT render a handle when connectorType is 'none' (AC6)", () => {
+      const noConnectorStyle = { ...defaultStyle, connectorType: "none" as const }
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={noConnectorStyle}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      expect(handles(getAllByTestId)).toHaveLength(0)
+    })
+
+    it("handle sits at the derived midpoint until bent (AC1)", () => {
+      // straight style, un-bent → handle at the geometric midpoint of swatch↔marker.
+      const straightStyle = { ...defaultStyle, connectorType: "straight" as const }
+      const r = defaultStyle.swatchRadius
+      // left-edge swatch at (r, 300); marker at (100, 200 + imageOffsetY 100 = 300).
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={straightStyle}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      const handle = handles(getAllByTestId)[0]
+      expect(handle.getAttribute("data-x")).toBe(String((r + 100) / 2))
+      expect(handle.getAttribute("data-y")).toBe("300")
+    })
+
+    it("handle sits at connectorMid once bent (AC3)", () => {
+      const points = [
+        { ...makePoint("p1", 100, 200, "#ff0000", "left", 300), connectorMid: { x: 222, y: 333 } },
+      ]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      const handle = handles(getAllByTestId)[0]
+      expect(handle.getAttribute("data-x")).toBe("222")
+      expect(handle.getAttribute("data-y")).toBe("333")
+    })
+
+    it("clicking the handle sets cancelBubble so the Stage does not deselect the point", () => {
+      // Regression: Konva also fires a click on release after a drag; without
+      // cancelBubble it bubbles to the Stage's select-mode onClick → onDeselect,
+      // unmounting the handle (which only renders for the selected point). The
+      // swatch/marker guard this the same way.
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      fireEvent.click(handles(getAllByTestId)[0])
+      expect(lastClickEvent.evt?.cancelBubble).toBe(true)
+    })
+
+    it("dragging the handle calls onConnectorDragMove/End with the node coords", () => {
+      const onConnectorDragMove = vi.fn(() => ({ x: 0, y: 0 }))
+      const onConnectorDragEnd = vi.fn(() => ({ x: 0, y: 0 }))
+      const points = [
+        { ...makePoint("p1", 100, 200, "#ff0000", "left", 300), connectorMid: { x: 200, y: 200 } },
+      ]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+          onConnectorDragMove={onConnectorDragMove}
+          onConnectorDragEnd={onConnectorDragEnd}
+        />
+      )
+      const handle = handles(getAllByTestId)[0]
+      // mock fires drag with node x+10, y+10 (handle at 200,200 → 210,210).
+      fireEvent.mouseDown(handle)
+      expect(onConnectorDragMove).toHaveBeenCalledWith("p1", 210, 210)
+      fireEvent.mouseUp(handle)
+      expect(onConnectorDragEnd).toHaveBeenCalledWith("p1", 210, 210)
+    })
+
+    it("writes back the clamped position returned by onConnectorDragEnd", () => {
+      const onConnectorDragEnd = vi.fn(() => ({ x: 42, y: 99 }))
+      const points = [
+        { ...makePoint("p1", 100, 200, "#ff0000", "left", 300), connectorMid: { x: 200, y: 200 } },
+      ]
+      const { getAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+          onConnectorDragEnd={onConnectorDragEnd}
+        />
+      )
+      lastSetPos.x = null
+      lastSetPos.y = null
+      fireEvent.mouseUp(handles(getAllByTestId)[0])
+      expect(lastSetPos).toEqual({ x: 42, y: 99 })
+    })
+
+    it("handle dragBoundFunc clamps to [0,w]×[0,h] in scaled space (no radius inset)", () => {
+      const scale = 0.5
+      const w = DEFAULT_PROPS.canvasWidth * scale
+      const h = DEFAULT_PROPS.canvasHeight * scale
+      const node: FakeNode = { getStage: () => ({ scaleX: () => scale }) }
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      lastDragBoundFunc.fn = null
+      render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+        />
+      )
+      // The bend handle is the only Circle setting a dragBoundFunc here (the swatch
+      // sets one too, but the handle renders after it — last write wins).
+      const bound = lastDragBoundFunc.fn!
+      expect(bound.call(node, { x: 9999, y: 9999 })).toEqual({ x: w, y: h })
+      expect(bound.call(node, { x: -50, y: -50 })).toEqual({ x: 0, y: 0 })
+    })
   })
 
   describe("pastel textured swatch (Story 3.5)", () => {

@@ -6,6 +6,7 @@ import type Konva from "konva"
 import type { KonvaEventObject } from "konva/lib/Node"
 import type { EyedropperPoint } from "@/lib/types"
 import type { Style } from "@/lib/styles"
+import { computeConnectorGeometry } from "@/lib/swatch-layout"
 
 interface Props {
   points: EyedropperPoint[]
@@ -24,6 +25,15 @@ interface Props {
   onSwatchDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onRequestRemove: (id: string, clientX: number, clientY: number) => void
   onSelectPoint: (id: string) => void
+  // Story 5.4: connector bend-handle drag. Optional so existing tests/callers that
+  // don't wire them still compile; the handle only renders when in select mode
+  // for the selected point (see below), so absent handlers simply mean no handle.
+  onConnectorDragMove?: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  onConnectorDragEnd?: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  // Gate the bend handle off in label-edit mode (the EyedropperLayer stays mounted
+  // underneath the HTML label overlay) and show it only for the selected point.
+  labelEditMode?: boolean
+  selectedPointId?: string | null
 }
 
 // Konva event handler props shared by BOTH swatch render paths (flat Circle and
@@ -144,21 +154,6 @@ export function getSwatchPos(
   }
 }
 
-function getCurvedMidpoint(
-  sx: number, sy: number,
-  mx: number, my: number,
-  side: string
-): [number, number] {
-  const cx = (sx + mx) / 2
-  const cy = (sy + my) / 2
-  const offset = 40
-  if (side === "left")   return [cx - offset, cy]
-  if (side === "right")  return [cx + offset, cy]
-  if (side === "top")    return [cx, cy - offset]
-  if (side === "bottom") return [cx, cy + offset]
-  return [cx, cy]
-}
-
 export default function EyedropperLayer({
   points,
   imageOffsetY,
@@ -174,6 +169,10 @@ export default function EyedropperLayer({
   onSwatchDragEnd,
   onRequestRemove,
   onSelectPoint,
+  onConnectorDragMove,
+  onConnectorDragEnd,
+  labelEditMode,
+  selectedPointId,
 }: Props) {
   // Draw the textured swatch only when the style asks for it AND both textures
   // have decoded; otherwise the flat Circle is the fallback (existing four styles
@@ -188,11 +187,22 @@ export default function EyedropperLayer({
         const markerX = p.x
         const markerY = p.y + imageOffsetY
         const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
-        const [midCx, midCy] = getCurvedMidpoint(
-          swatchPos.x, swatchPos.y,
-          markerX, markerY,
-          p.swatchSide
-        )
+        const connector = computeConnectorGeometry({
+          swatch: swatchPos,
+          marker: { x: markerX, y: markerY },
+          connectorMid: p.connectorMid,
+          connectorType: style.connectorType,
+          swatchSide: p.swatchSide,
+        })
+        // Show the bend handle only for the SELECTED point, only in select mode,
+        // and never in label-edit mode. This keeps at most one small handle on the
+        // canvas (uncluttered) and gates interactivity per AC7. Export additionally
+        // hides handles by name in handleExport (belt-and-suspenders — see index.tsx).
+        const showConnectorHandle =
+          style.connectorType !== "none" &&
+          interactionMode === "select" &&
+          !labelEditMode &&
+          selectedPointId === p.id
 
         // Shared right-click remove — attached to whichever swatch node renders.
         const onSwatchContextMenu = (e: KonvaEventObject<PointerEvent>) => {
@@ -249,15 +259,13 @@ export default function EyedropperLayer({
 
         return (
           <Group key={p.id}>
-            {/* Connector — drawn first (underneath) */}
+            {/* Connector — drawn first (underneath). Geometry from the pure helper;
+                identical to before when the point has never been bent (AC5). The
+                line itself is listening={false}; grabbing is via the handle below. */}
             {style.connectorType !== "none" && (
               <Line
-                points={
-                  style.connectorType === "curved"
-                    ? [swatchPos.x, swatchPos.y, midCx, midCy, markerX, markerY]
-                    : [swatchPos.x, swatchPos.y, markerX, markerY]
-                }
-                tension={style.connectorType === "curved" ? 0.5 : 0}
+                points={connector.linePoints}
+                tension={connector.curved ? 0.5 : 0}
                 stroke={style.connectorColor}
                 strokeWidth={style.connectorWidth}
                 listening={false}
@@ -330,6 +338,68 @@ export default function EyedropperLayer({
                     e.target.y(snapped.y)
                   },
                 })}
+              />
+            )}
+
+            {/* Bend handle (Story 5.4) — a small draggable ring at the connector's
+                current midpoint, drawn ON TOP so it is easy to grab. Drag it to bow
+                the line through that point. Shown only for the selected point in
+                select mode (see showConnectorHandle) so at most one is ever visible
+                and the canvas stays uncluttered; gated so it never reacts in
+                add/label-edit mode (AC7). Named "connector-handle" so handleExport
+                can hide it before toDataURL (AC8 — handles are chrome, not artwork). */}
+            {showConnectorHandle && (
+              <Circle
+                name="connector-handle"
+                x={connector.handle.x}
+                y={connector.handle.y}
+                radius={6}
+                fill="#c4956a99"
+                stroke="#c4956a"
+                strokeWidth={1.5}
+                hitStrokeWidth={16}
+                draggable
+                // Stop the click (which Konva also fires after a drag on release)
+                // from bubbling to the Stage's select-mode onClick, which would
+                // call onDeselect() and unmount this handle — mirrors the swatch
+                // and marker onClick guards above.
+                onClick={(e: KonvaEventObject<MouseEvent>) => {
+                  e.cancelBubble = true
+                }}
+                dragBoundFunc={function (pos) {
+                  // Konva passes absolute stage-pixel coords; scale the canvas
+                  // bounds by the stage scale. No radius inset — the handle may sit
+                  // anywhere on the canvas (over image or letterbox).
+                  const s = this.getStage()?.scaleX() ?? 1
+                  const w = canvasWidth * s
+                  const h = canvasHeight * s
+                  return {
+                    x: Math.max(0, Math.min(w, pos.x)),
+                    y: Math.max(0, Math.min(h, pos.y)),
+                  }
+                }}
+                onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {
+                  const c = e.target.getStage()?.container()
+                  if (c) c.style.cursor = "grab"
+                }}
+                onMouseLeave={(e: KonvaEventObject<MouseEvent>) => {
+                  const c = e.target.getStage()?.container()
+                  if (c) c.style.cursor = "default"
+                }}
+                onDragMove={(e: KonvaEventObject<DragEvent>) => {
+                  const next = onConnectorDragMove?.(p.id, e.target.x(), e.target.y())
+                  if (next) {
+                    e.target.x(next.x)
+                    e.target.y(next.y)
+                  }
+                }}
+                onDragEnd={(e: KonvaEventObject<DragEvent>) => {
+                  const next = onConnectorDragEnd?.(p.id, e.target.x(), e.target.y())
+                  if (next) {
+                    e.target.x(next.x)
+                    e.target.y(next.y)
+                  }
+                }}
               />
             )}
           </Group>

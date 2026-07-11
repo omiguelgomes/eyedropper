@@ -30,15 +30,15 @@ const fakeTexture = {} as HTMLImageElement
 describe("StyleThumbnail", () => {
   it("renders a neutral placeholder (no Stage) until the sample image loads", () => {
     const { getByTestId, queryByTestId } = render(
-      <StyleThumbnail style={byName("float_clean")} sampleImg={null} />
+      <StyleThumbnail style={byName("float")} sampleImg={null} />
     )
     expect(getByTestId("thumbnail-placeholder")).toBeDefined()
     expect(queryByTestId("stage")).toBeNull()
   })
 
-  it("float_clean (curved connector, ring marker): connector lines present, markers hollow", () => {
+  it("float (curved connector, ring marker): connector lines present, markers hollow", () => {
     const { queryAllByTestId } = render(
-      <StyleThumbnail style={byName("float_clean")} sampleImg={fakeImg} />
+      <StyleThumbnail style={byName("float")} sampleImg={fakeImg} />
     )
     // Curved connector → one Line per sample point.
     expect(queryAllByTestId("line").length).toBeGreaterThan(0)

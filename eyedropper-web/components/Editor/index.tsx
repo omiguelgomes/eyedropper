@@ -92,6 +92,7 @@ export function apiPointsToEyedroppers(
     swatchOrder: null,
     swatchX: null,
     swatchY: null,
+    connectorMid: null,
     label: {
       text: "",
       visible: true,
@@ -116,6 +117,7 @@ export function claudePointsToEyedroppers(
     swatchOrder: null,
     swatchX: null,
     swatchY: null,
+    connectorMid: null,
     label: {
       text: p.description,
       visible: true,
@@ -477,6 +479,32 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     []
   )
 
+  // Story 5.4: store the connector bend handle's absolute canvas position on the
+  // point. Both handlers just write `connectorMid` from the passed (already
+  // clamped by dragBoundFunc) coords — there is no snapping or overlap resolution
+  // for the bend in this story. useCallback([]) + read only the args (no refs
+  // needed) so the callbacks stay stable (the recurring stale-deps bug). Kept as
+  // two handlers to match the swatch handler shape / EyedropperLayer prop contract.
+  const handleConnectorDragMove = useCallback(
+    (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, connectorMid: { x: canvasX, y: canvasY } } : p))
+      )
+      return { x: canvasX, y: canvasY }
+    },
+    []
+  )
+
+  const handleConnectorDragEnd = useCallback(
+    (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
+      setPoints((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, connectorMid: { x: canvasX, y: canvasY } } : p))
+      )
+      return { x: canvasX, y: canvasY }
+    },
+    []
+  )
+
   const handleAddPoint = useCallback((canvasX: number, canvasY: number) => {
     const layout = canvasLayoutRef.current
     const ctx = hiddenCanvasCtxRef.current
@@ -613,7 +641,13 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       await document.fonts.ready
     }
 
+    // Story 5.4: bend handles are interactive chrome, not part of the artwork.
+    // They are only shown for the selected point, but export can fire while a
+    // point is selected — so hide any handle nodes for the capture, then restore.
+    const handles = stage.find(".connector-handle")
+    handles.forEach((h) => h.visible(false))
     const dataUrl = stage.toDataURL({ pixelRatio })
+    handles.forEach((h) => h.visible(true))
     const res = await fetch("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -799,6 +833,9 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             onMarkerDragEnd={handleMarkerDragEnd}
             onSwatchDragMove={handleSwatchDragMove}
             onSwatchDragEnd={handleSwatchDragEnd}
+            onConnectorDragMove={handleConnectorDragMove}
+            onConnectorDragEnd={handleConnectorDragEnd}
+            selectedPointId={selectedPointId}
             onAddPoint={handleAddPoint}
             onRequestRemove={handleRequestRemove}
             onSelectPoint={handleSelectPoint}

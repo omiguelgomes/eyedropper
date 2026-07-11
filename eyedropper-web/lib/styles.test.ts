@@ -5,10 +5,9 @@ describe("loadStyles", () => {
   const styles = loadStyles()
   const byName = (name: string) => styles.find((s) => s.name === name)
 
-  it("returns 5 styles including pastel (Story 3.5)", () => {
-    expect(styles).toHaveLength(5)
+  it("returns 4 styles including pastel (Story 3.5)", () => {
+    expect(styles).toHaveLength(4)
     expect(styles.map((s) => s.name)).toEqual([
-      "float_clean",
       "float",
       "grid",
       "minimal",
@@ -16,8 +15,8 @@ describe("loadStyles", () => {
     ])
   })
 
-  it("keeps float_clean as the default at index 0", () => {
-    expect(styles[0].name).toBe("float_clean")
+  it("keeps float as the default at index 0", () => {
+    expect(styles[0].name).toBe("float")
   })
 
   it("pastel carries the two texture paths", () => {
@@ -30,22 +29,21 @@ describe("loadStyles", () => {
     expect(byName("pastel")!.connectorType).toBe("curved")
   })
 
-  it("the four existing styles have no texture fields (flat fallback path)", () => {
-    for (const name of ["float_clean", "float", "grid", "minimal"]) {
+  it("the existing flat styles have no texture fields (flat fallback path)", () => {
+    for (const name of ["float", "grid", "minimal"]) {
       const s = byName(name)!
       expect(s.swatchTexture).toBeUndefined()
       expect(s.borderTexture).toBeUndefined()
     }
   })
 
-  it("the four existing styles retain their known fields unchanged (AC2/AC4 regression guard)", () => {
-    expect(byName("float_clean")).toMatchObject({
+  it("the existing styles retain their known fields unchanged (AC2/AC4 regression guard)", () => {
+    expect(byName("float")).toMatchObject({
       swatchRadius: 48,
       connectorType: "curved",
       markerStyle: "ring",
-      labelPosition: "none",
+      labelPosition: "beside",
     })
-    expect(byName("float")).toMatchObject({ connectorType: "curved", labelPosition: "beside" })
     expect(byName("grid")).toMatchObject({ connectorType: "none", markerStyle: "dot", labelPosition: "below" })
     expect(byName("minimal")).toMatchObject({
       swatchRadius: 40,

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/miguel.gomes/main/docs/eyedropper/**)",
+      "Bash(rtk git *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk vitest *)",
+      "Bash(rtk lint *)",
+      "Bash(rtk proxy *)",
+      "Bash(timeout 180 npm run build)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__navigate_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
+      "Bash(kill 37016)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(perl -0pi -e 's/- \\\\[ \\\\]/- [x]/g' 5-4-draggable-connector-lines.md)",
+      "Bash(rtk grep *)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_snapshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages",
+      "Bash(cp components/Editor/EyedropperLayer.tsx /tmp/eyd_backup.tsx)",
+      "Bash(perl -0pi -e 's/                onClick=\\\\{\\\\\\(e: KonvaEventObject<MouseEvent>\\\\\\) => \\\\{\\\\n                  e\\\\.cancelBubble = true\\\\n                \\\\}\\\\}\\\\n//' components/Editor/EyedropperLayer.tsx)",
+      "Bash(cp /tmp/eyd_backup.tsx components/Editor/EyedropperLayer.tsx)",
+      "Bash(rm /tmp/eyd_backup.tsx)",
+      "Bash(chmod 600 ~/.ssh/config)",
+      "Bash(git -C ~/personal config --show-origin --get user.email)",
+      "Bash(ssh -T git@github-personal)",
+      "Bash(ssh-keygen -F github.com)"
+    ]
+  }
+}

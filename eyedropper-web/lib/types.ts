@@ -18,6 +18,10 @@ export interface EyedropperPoint {
   // null = not yet detached; the swatch follows the auto edge layout instead.
   swatchX: number | null
   swatchY: number | null
+  // Absolute canvas-space position of the connector's bend handle. null = not
+  // yet bent; the connector uses its derived default midpoint (getCurvedMidpoint
+  // for curved styles, or the straight-line midpoint for the handle position).
+  connectorMid: { x: number; y: number } | null
   label: {
     text: string
     visible: boolean

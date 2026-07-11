@@ -51,7 +51,7 @@ describe("getLabelPosition", () => {
     })
   })
 
-  describe("labelPosition 'none' (float_clean, minimal)", () => {
+  describe("labelPosition 'none' (minimal)", () => {
     it("uses the same rule as 'beside' so a field still appears next to the swatch", () => {
       const left = getLabelPosition(swatchPos, "left", "none", R, W, H)
       expect(left.x).toBe(swatchPos.x + R + LABEL_GAP)

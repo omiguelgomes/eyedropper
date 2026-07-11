@@ -19,7 +19,7 @@ Implement the clarified intent directly.
 
 ### Review
 
-Invoke the `bmad-review-adversarial-general` skill in a subagent with the changed files. The subagent gets NO conversation context — to avoid anchoring bias. Launch at the same model capability as the current session. If no sub-agents are available, write the changed files to a review prompt file in `{implementation_artifacts}` and HALT. Ask the human to run the review in a separate session and paste back the findings.
+In a subagent, invoke the `bmad-review-adversarial-general` skill on the changed files. Use a generic subagent type (e.g. `general-purpose` / `claude`) and have its prompt tell it to invoke the skill via the Skill tool — the skill name is NOT a valid `subagent_type` and passing it as one fails with "Agent type not found". The subagent gets NO conversation context — to avoid anchoring bias. Launch at the same model capability as the current session. If no sub-agents are available, write the changed files to a review prompt file in `{implementation_artifacts}` and HALT. Ask the human to run the review in a separate session and paste back the findings.
 
 ### Classify
 

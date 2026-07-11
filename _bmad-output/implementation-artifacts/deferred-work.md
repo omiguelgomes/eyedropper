@@ -1,5 +1,9 @@
 # Deferred Work
 
+## Deferred from: code review of 3-6-redesign-pastel-swatch-texture (2026-07-02)
+
+- Stale "Companion font" section in `public/textures/README.md` — the section tells the reader to wire `Caveat` into `lib/fonts.ts` "as part of the style story, not before", but Story 3.5 already wired it (`lib/fonts.ts:7,45-73`, verified by `lib/fonts.test.ts:42`). This is pre-existing prose that predates Story 3.5 and was NOT modified by Story 3.6's diff, so it is out of scope for this asset-only story. Correct it to past-tense when the README is next touched: "The companion handwriting font for the `pastel` style is **Caveat** (upright, marker-like), wired into `lib/fonts.ts` in Story 3.5." Documentation-only; no code impact.
+
 ## Deferred from: code review of 5-3-equal-interval-distribution-cue (2026-07-01)
 
 - `alignPos` uses the dragged swatch's snapped perpendicular coord (`outX`/`outY`), not the chain's actual shared coordinate [lib/swatch-layout.ts:193,196] — flagged independently by both the Blind Hunter and Edge Case Hunter. For a Y-axis (column) cue, `alignPos: outX`; chain membership is `alignedY = others where |o.x − x| ≤ threshold`, so members can share a column X up to `threshold` away from the dragged swatch's snapped X. When the winning X snap is that column member's x (the dominant flow, since `snapHigh` scans other-swatch x's first) `alignPos` is correct; it only diverges when a "column" has members at slightly different x's within threshold, and the error is bounded by `threshold` (~20 canvas px at typical downscale). Purely cosmetic mis-registration of the badge line — never affects the snap position. Every test masks it because the drag coord exactly equals the column/row coord. Fix if the cue ever visibly drifts: derive `alignPos` from the aligned members' shared coord (e.g. their median/first) rather than the dragged swatch's own snapped coord.
