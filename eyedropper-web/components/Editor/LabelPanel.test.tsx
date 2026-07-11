@@ -33,13 +33,11 @@ function makeLabel(overrides: Partial<EyedropperPoint["label"]> = {}): Eyedroppe
   }
 }
 
-// LabelPanel now requires onApplyToAll (Story 3.4). Centralize the required
-// props so each test only overrides what it asserts on.
+// Centralize the required props so each test only overrides what it asserts on.
 function makeProps(overrides: Partial<React.ComponentProps<typeof LabelPanel>> = {}) {
   return {
     label: makeLabel(),
     onUpdate: vi.fn(),
-    onApplyToAll: vi.fn(),
     ...overrides,
   }
 }
@@ -103,19 +101,4 @@ describe("LabelPanel", () => {
     expect(onUpdate).toHaveBeenCalledWith({ visible: false })
   })
 
-  it("renders Font/Size/Color apply-to-all buttons that broadcast the field key (AC1-AC4)", () => {
-    const onApplyToAll = vi.fn()
-    const { getByRole } = render(<LabelPanel {...makeProps({ onApplyToAll })} />)
-
-    const fontBtn = getByRole("button", { name: "Font" })
-    const sizeBtn = getByRole("button", { name: "Size" })
-    const colorBtn = getByRole("button", { name: "Color" })
-
-    fireEvent.click(fontBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("fontFamily")
-    fireEvent.click(sizeBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("fontSize")
-    fireEvent.click(colorBtn)
-    expect(onApplyToAll).toHaveBeenCalledWith("color")
-  })
 })

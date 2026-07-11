@@ -9,7 +9,6 @@ import { sampleColor } from "@/lib/color-sample"
 import { assignSwatchLayout, resolveSwatchOverlap, computeSwatchSnap } from "@/lib/swatch-layout"
 import type { SnapGuide, DistributionGuide } from "@/lib/swatch-layout"
 import { clampToImage } from "@/lib/drag-utils"
-import { applyFieldToAll } from "@/lib/apply-to-all"
 import { triggerDownload } from "@/lib/download"
 import { loadStyles } from "@/lib/styles"
 import type { Style } from "@/lib/styles"
@@ -598,8 +597,22 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
 
   const handleUpdateLabel = useCallback(
     (id: string, patch: Partial<EyedropperPoint["label"]>) => {
+      // Presentation fields (font/size/color) apply to EVERY label by default;
+      // text/visibility/position stay scoped to the one point.
+      const broadcastKeys = ["fontFamily", "fontSize", "color"] as const
       setPoints((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, label: { ...p.label, ...patch } } : p))
+        prev.map((p) => {
+          const isTarget = p.id === id
+          const next = { ...p.label }
+          for (const [k, v] of Object.entries(patch)) {
+            if ((broadcastKeys as readonly string[]).includes(k)) {
+              ;(next as Record<string, unknown>)[k] = v
+            } else if (isTarget) {
+              ;(next as Record<string, unknown>)[k] = v
+            }
+          }
+          return { ...p, label: next }
+        })
       )
     },
     []
@@ -608,18 +621,6 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   const handleUpdateLabelPos = useCallback(
     (id: string, x: number, y: number) => handleUpdateLabel(id, { x, y }),
     [handleUpdateLabel]
-  )
-
-  // Broadcast the selected point's font/size/color to every point (Story 3.4).
-  // Reads the selected value from `prev` inside the updater (live array, not the
-  // selectedPoint render closure), depending only on selectedPointId so identity
-  // is stable. Pure label styling — no swatch-layout re-run (it keys on marker
-  // coords + swatchSide only). See lib/apply-to-all.ts.
-  const handleApplyToAll = useCallback(
-    (field: "fontFamily" | "fontSize" | "color") => {
-      setPoints((prev) => applyFieldToAll(prev, selectedPointId, field))
-    },
-    [selectedPointId]
   )
 
   // Capture the Konva stage as a 9:16 JPEG and download it. Reads live layout
@@ -869,7 +870,6 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           <LabelPanel
             label={selectedPoint.label}
             onUpdate={(patch) => handleUpdateLabel(selectedPoint.id, patch)}
-            onApplyToAll={handleApplyToAll}
           />
         )}
         {selectedPoint && !labelEditMode && (
