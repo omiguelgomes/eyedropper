@@ -212,7 +212,10 @@ describe("LabelEditOverlay", () => {
     expect(onUpdateLabelPos).toHaveBeenLastCalledWith("p1", 0, 50)
   })
 
-  it("gives the input at least a 10ch min width for empty/short labels", () => {
+  it("floors an empty label's input width at the screen font size (stays clickable)", () => {
+    // Empty text → measured width is the coarse jsdom fallback (~8.8px canvas);
+    // the floor is screenFont = fontSize(16) * scale(0.5) = 8px, so the box hugs
+    // the origin rather than overshooting rightward onto the swatch.
     const points = [makePoint("p1", { label: { text: "" } })]
     const { getByRole } = render(
       <LabelEditOverlay
@@ -223,7 +226,7 @@ describe("LabelEditOverlay", () => {
         {...DEFAULT}
       />
     )
-    expect((getByRole("textbox") as HTMLInputElement).style.width).toBe("10ch")
+    expect((getByRole("textbox") as HTMLInputElement).style.width).toBe("8px")
   })
 
   it("selects the point when its input is focused", () => {

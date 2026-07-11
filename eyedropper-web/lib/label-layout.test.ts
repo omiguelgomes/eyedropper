@@ -26,23 +26,23 @@ describe("getLabelPosition", () => {
   })
 
   describe("labelPosition 'beside'", () => {
-    it("places the label to the right of a left-edge swatch", () => {
+    it("places the label to the right of a left-edge swatch, vertically centered", () => {
       const pos = getLabelPosition(swatchPos, "left", "beside", R, W, H, LW, LH)
       expect(pos.x).toBe(swatchPos.x + R + LABEL_GAP)
-      expect(pos.y).toBe(swatchPos.y)
+      expect(pos.y).toBe(swatchPos.y - LH / 2)
     })
 
-    it("places the label to the left of a right-edge swatch", () => {
+    it("places the label to the left of a right-edge swatch (right edge at the gap)", () => {
       const pos = getLabelPosition(swatchPos, "right", "beside", R, W, H, LW, LH)
-      expect(pos.x).toBe(swatchPos.x - R - LABEL_GAP)
-      expect(pos.y).toBe(swatchPos.y)
+      expect(pos.x).toBe(swatchPos.x - R - LABEL_GAP - LW)
+      expect(pos.y).toBe(swatchPos.y - LH / 2)
     })
 
     it("defaults to the right side for top/bottom/auto swatches", () => {
       for (const side of ["top", "bottom", "auto"] as const) {
         const pos = getLabelPosition(swatchPos, side, "beside", R, W, H, LW, LH)
         expect(pos.x).toBe(swatchPos.x + R + LABEL_GAP)
-        expect(pos.y).toBe(swatchPos.y)
+        expect(pos.y).toBe(swatchPos.y - LH / 2)
       }
     })
   })
