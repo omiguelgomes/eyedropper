@@ -15,6 +15,7 @@ import { loadStyles } from "@/lib/styles"
 import type { Style } from "@/lib/styles"
 import { getSwatchPos } from "./EyedropperLayer"
 import { getLabelPosition } from "@/lib/label-layout"
+import { measureLabelWidth } from "@/lib/measure-text"
 import Canvas from "./Canvas"
 import ContextMenu from "./ContextMenu"
 import PointPanel from "./PointPanel"
@@ -151,8 +152,10 @@ export function seedNewLabels(
   return after.map((p) => {
     if (p.swatchOrder === null || alreadyLaidOut.has(p.id)) return p
     const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
+    const w = measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily)
     const anchor = getLabelPosition(
-      swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius, canvasWidth, canvasHeight
+      swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius,
+      canvasWidth, canvasHeight, w, p.label.fontSize
     )
     return { ...p, label: { ...p.label, x: anchor.x, y: anchor.y } }
   })
@@ -581,9 +584,10 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           const swatchPos = getSwatchPos(
             p, layout.canvasWidth, layout.canvasHeight, style.swatchRadius
           )
+          const w = measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily)
           const labelPos = getLabelPosition(
             swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius,
-            layout.canvasWidth, layout.canvasHeight
+            layout.canvasWidth, layout.canvasHeight, w, p.label.fontSize
           )
           return { ...p, label: { ...p.label, x: labelPos.x, y: labelPos.y } }
         })
