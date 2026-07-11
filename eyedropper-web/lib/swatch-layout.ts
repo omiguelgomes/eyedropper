@@ -182,17 +182,22 @@ export function computeSwatchSnap(input: {
   if (snapX !== null) guides.push({ axis: "x", pos: outX })
   if (snapY !== null) guides.push({ axis: "y", pos: outY })
 
-  // One equal-distance cue PER AXIS whose FINAL snapped position lands on its
-  // equal-interval target — both can fire at once (a swatch centred in both a row
-  // and a column shows both, never just one). The land-on-target check suppresses
-  // the cue when a higher-priority alignment pulled the final position OFF the
-  // midpoint, where the gaps would no longer actually be equal. alignPos is the
-  // shared perpendicular coord: the row's Y (outY) / the column's X (outX).
+  // One equal-distance cue PER AXIS whose chain exists — both can fire at once (a
+  // swatch centred in both a row and a column shows both, never just one). The cue
+  // is emitted whenever the equal-interval chain exists, INDEPENDENT of whether a
+  // higher-priority aligner won the final snap position on that axis: a chain only
+  // exists when the raw cursor was within threshold of the midpoint, and any
+  // competing snap is itself within threshold of that raw cursor, so the swatch is
+  // still equidistant "enough" at the snap tolerance the whole feature runs at.
+  // (Gating on the final position exactly equalling the midpoint used to drop the
+  // cue on every tie where the competing target wasn't pixel-identical to the
+  // midpoint — i.e. nearly always in real dragging.) alignPos is the shared
+  // perpendicular coord: the row's Y (outY) / the column's X (outX).
   const distribution: DistributionGuide[] = []
-  if (chainX && outX === clamp(chainX.snap, canvasWidth)) {
+  if (chainX) {
     distribution.push({ axis: "x", alignPos: outY, marks: chainX.marks })
   }
-  if (chainY && outY === clamp(chainY.snap, canvasHeight)) {
+  if (chainY) {
     distribution.push({ axis: "y", alignPos: outX, marks: chainY.marks })
   }
 

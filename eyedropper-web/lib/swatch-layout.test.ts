@@ -745,6 +745,28 @@ describe("computeSwatchSnap", () => {
     expect(result.distribution).toEqual([{ axis: "y", alignPos: 150, marks: [100, 200, 300] }])
   })
 
+  it("tie: the cue fires even when a competing aligner near (not exactly on) the midpoint wins the snap", () => {
+    // The real-world tie: a column shared X=150 at Y=100,300 (midpoint 200), plus an
+    // UNRELATED dot at Y=197 — near the cursor but NOT on the midpoint. That dot wins
+    // the Y snap (priority a), so the swatch lands at 197, a few px off 200. The
+    // swatch is still equidistant in the column at the snap tolerance, so the cue
+    // must still appear. (Regression: the old exact `outY === midpoint` guard dropped
+    // it whenever the competing target wasn't pixel-identical to the midpoint.)
+    const result = computeSwatchSnap({
+      ...base,
+      others: [
+        { x: 150, y: 100 }, // column
+        { x: 150, y: 300 }, // column → midpoint 200
+        { x: 999, y: 197 }, // unrelated dot, wins Y snap at 197
+      ],
+      marker: FAR_MARKER,
+      x: 150,
+      y: 203, // within 10 of both midpoint 200 and the dot at 197
+    })
+    expect(result.y).toBe(197) // competing aligner won the position...
+    expect(result.distribution).toEqual([{ axis: "y", alignPos: 150, marks: [100, 200, 300] }]) // ...cue still shows
+  })
+
   it("tie: BOTH axes' equal-distance cues fire when centred in a row and a column at once", () => {
     // A vertical column shared X=150 at Y=100,300 (midpoint Y=200) AND a horizontal
     // row shared Y=200 at X=50,250 (midpoint X=150). Dragging to (150,200) is the
