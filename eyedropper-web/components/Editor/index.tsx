@@ -736,16 +736,17 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     // point is selected — so hide any handle nodes for the capture, then restore.
     const handles = stage.find(".connector-handle")
     handles.forEach((h) => h.visible(false))
-    const dataUrl = stage.toDataURL({ pixelRatio })
-    handles.forEach((h) => h.visible(true))
-    const res = await fetch("/api/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dataUrl }),
+    // Encode the JPEG in the browser rather than POSTing a PNG data URL to a
+    // server route: a full-resolution PNG easily exceeds Vercel's 4.5MB request
+    // body limit and gets rejected with 413 before our handler runs. toBlob
+    // produces the final q95 JPEG directly, so there is no upload at all.
+    const blob = await stage.toBlob({
+      mimeType: "image/jpeg",
+      quality: 0.95,
+      pixelRatio,
     })
-    if (!res.ok) throw new Error("Export failed")
-    const blob = await res.blob()
-    triggerDownload(blob, "eyedropper-export.jpg")
+    handles.forEach((h) => h.visible(true))
+    triggerDownload(blob as Blob, "eyedropper-export.jpg")
   }, [displaySize])
 
   const handleSelectStyle = useCallback((next: Style) => {
