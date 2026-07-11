@@ -11,6 +11,7 @@ interface Props {
   scale: number
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
+  onSelectPoint: (id: string) => void
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max)
@@ -34,6 +35,7 @@ export default function LabelEditOverlay({
   scale,
   onUpdateLabelText,
   onUpdateLabelPos,
+  onSelectPoint,
 }: Props) {
   // Active drag: maps the captured pointerId to the label's start position so
   // onPointerMove can compute the new (clamped) canvas-space coords.
@@ -117,7 +119,8 @@ export default function LabelEditOverlay({
               style={{
                 position: "absolute",
                 right: "100%",
-                top: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
                 marginRight: 4,
                 cursor: "move",
                 fontSize: 12,
@@ -135,6 +138,7 @@ export default function LabelEditOverlay({
               aria-label={`Label text for point ${i + 1}`}
               value={p.label.text}
               onChange={(e) => onUpdateLabelText(p.id, e.target.value)}
+              onFocus={() => onSelectPoint(p.id)}
               // Transparent text/background/border and zero box padding so the
               // input occupies the exact footprint of the Konva Text beneath it;
               // only the caret is visible. Width tracks the content (approx via ch)
@@ -154,7 +158,7 @@ export default function LabelEditOverlay({
                 fontFamily: resolveFontFamily(p.label.fontFamily),
                 lineHeight: 1,
                 height: screenFont,
-                width: `${Math.max(p.label.text.length, 3)}ch`,
+                width: `${Math.max(p.label.text.length, 10)}ch`,
               }}
             />
           </div>
