@@ -394,19 +394,18 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         ? sampleColor(hiddenCanvasCtxRef.current, clampedX, clampedY)
         : null
 
-      setPoints((prev) => {
-        const updated = prev.map((p) =>
+      // Only the dragged point's position/color changes — do NOT re-run
+      // assignSwatchLayout here. That would re-sort and redistribute every
+      // swatch on the edge by marker position, so dropping one marker next to
+      // another reshuffled the swatches (the "eyedropper switches position"
+      // bug). Markers may overlap freely; swatches stay exactly where they are.
+      setPoints((prev) =>
+        prev.map((p) =>
           p.id === id
             ? { ...p, x: clampedX, y: clampedY, ...(newColor ? { color: newColor } : {}) }
             : p
         )
-        return assignSwatchLayout(
-          updated,
-          layout.canvasWidth,
-          layout.canvasHeight,
-          layout.imageOffsetY
-        )
-      })
+      )
 
       // Return the clamped position in canvas space so the Konva node snaps to
       // the final location, not the stale pre-drag coords.
