@@ -197,23 +197,31 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   const [distribution, setDistribution] = useState<DistributionGuide[]>([])
   // Pastel-swatch textures (Story 3.5), loaded once and shared across every
   // swatch. Hydration-safe (browser Image in an effect, init null, cleanup nulls
-  // handlers) per docs/project-context.md. Only the pastel style uses them; the
-  // two PNGs are tiny (~24KB) so loading unconditionally is fine, and the layer
-  // falls back to the flat Circle until they decode.
+  // handlers) per docs/project-context.md. Only the pastel styles use them; the
+  // PNGs are tiny so loading unconditionally is fine, and the layer falls back to
+  // the flat Circle until they decode. Both ring variants are keyed by their
+  // public path so the active style's `borderTexture` resolves to the right one;
+  // the ring-less "pastel" style has no borderTexture and renders pencil only.
   const [pencilTexture, setPencilTexture] = useState<HTMLImageElement | null>(null)
-  const [borderTexture, setBorderTexture] = useState<HTMLImageElement | null>(null)
+  const [borderTextures, setBorderTextures] = useState<Record<string, HTMLImageElement>>({})
   useEffect(() => {
     const pencil = new window.Image()
     pencil.onload = () => setPencilTexture(pencil)
     pencil.src = "/textures/swatch-pencil.png"
-    const border = new window.Image()
-    border.onload = () => setBorderTexture(border)
-    border.src = "/textures/swatch-border.png"
+    const borderPaths = ["/textures/swatch-border.png", "/textures/swatch-border-thin.png"]
+    const borders = borderPaths.map((src) => {
+      const im = new window.Image()
+      im.onload = () => setBorderTextures((prev) => ({ ...prev, [src]: im }))
+      im.src = src
+      return im
+    })
     return () => {
       pencil.onload = null
-      border.onload = null
+      borders.forEach((im) => (im.onload = null))
     }
   }, [])
+  // The decoded ring for the ACTIVE style (null for the ring-less "pastel").
+  const borderTexture = style.borderTexture ? borderTextures[style.borderTexture] ?? null : null
 
   const [interactionMode, setInteractionMode] = useState<"select" | "add">("select")
   const [contextMenu, setContextMenu] = useState<{ pointId: string; x: number; y: number } | null>(null)

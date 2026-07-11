@@ -47,46 +47,40 @@ describe("StyleThumbnail", () => {
     expect(hollow.length).toBeGreaterThan(0)
   })
 
-  it("grid (no connector, dot marker): no connector lines, markers filled", () => {
-    const { queryAllByTestId } = render(
-      <StyleThumbnail style={byName("grid")} sampleImg={fakeImg} />
-    )
-    // connectorType "none" → no Line elements at all.
-    expect(queryAllByTestId("line")).toHaveLength(0)
-    // Dot markers are filled with the marker color.
-    const filledMarkers = queryAllByTestId("circle").filter(
-      (c) => c.getAttribute("data-fill") === byName("grid").markerColor
-    )
-    expect(filledMarkers.length).toBeGreaterThan(0)
-  })
-
-  it("minimal (straight connector, no marker): connector lines present, no hollow ring markers", () => {
-    const { queryAllByTestId } = render(
-      <StyleThumbnail style={byName("minimal")} sampleImg={fakeImg} />
-    )
-    // straight connector → Lines present.
-    expect(queryAllByTestId("line").length).toBeGreaterThan(0)
-    // markerStyle "none" → the only circles are swatches (all filled with a
-    // point color, none hollow).
-    const hollow = queryAllByTestId("circle").filter((c) => c.getAttribute("data-fill") === null)
-    expect(hollow).toHaveLength(0)
-  })
-
-  it("pastel with textures supplied renders textured swatch elements (pencil multiply + border images) (AC9)", () => {
+  it("ring-less pastel renders the pencil (multiply) but NO border image", () => {
+    // The default "pastel" style has swatchTexture but no borderTexture, so the
+    // picker resolves borderTexture to null → pencil disc only, no chalk ring.
     const { queryAllByTestId } = render(
       <StyleThumbnail
         style={byName("pastel")}
         sampleImg={fakeImg}
         pencilTexture={fakeTexture}
+        borderTexture={null}
+      />
+    )
+    const gcos = queryAllByTestId("image").map((i) => i.getAttribute("data-gco"))
+    expect(gcos).toContain("multiply")
+    // Only the sample drawing + two pencil images per swatch (multiply +
+    // destination-in); no as-is border image beyond those.
+    const asIs = gcos.filter((g) => g === "")
+    // The single "" entry is the sample drawing; a border image would add more.
+    expect(asIs).toHaveLength(1)
+  })
+
+  it("ringed pastel renders the pencil (multiply) AND a border image", () => {
+    const { queryAllByTestId } = render(
+      <StyleThumbnail
+        style={byName("pastel ring")}
+        sampleImg={fakeImg}
+        pencilTexture={fakeTexture}
         borderTexture={fakeTexture}
       />
     )
-    // The sample drawing image plus per-swatch texture images. A pencil image
-    // uses multiply; the border image is drawn as-is.
     const gcos = queryAllByTestId("image").map((i) => i.getAttribute("data-gco"))
     expect(gcos).toContain("multiply")
-    // At least one flat swatch Circle should NOT be drawn (textured path replaces
-    // it); markers still render as hollow rings.
+    // Sample drawing + one border image per sample point are drawn as-is ("").
+    const asIs = gcos.filter((g) => g === "")
+    expect(asIs.length).toBeGreaterThan(1)
     const swatchGroups = queryAllByTestId("group")
     expect(swatchGroups.length).toBeGreaterThan(0)
   })

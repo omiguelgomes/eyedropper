@@ -8,9 +8,9 @@ export interface Style {
   connectorType: "curved" | "straight" | "none"
   connectorColor: string
   connectorWidth: number
-  markerStyle: "ring" | "dot" | "none"
+  markerStyle: "ring" | "dot"
   markerColor: string
-  labelPosition: "beside" | "below" | "none"
+  labelPosition: "beside" | "below"
   // Optional pastel/textured-swatch fields (Story 3.5). Absent on the four flat
   // built-in styles, which fall back to the crisp fill+stroke Circle render.
   // Public paths under /textures served from public/textures/.

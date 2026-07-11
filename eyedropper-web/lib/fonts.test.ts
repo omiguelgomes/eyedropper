@@ -1,46 +1,60 @@
 import { describe, it, expect, vi } from "vitest"
 
-// next/font/google is a build-time transform that fails under Vitest — stub each
-// font the module imports so it resolves to a deterministic family/variable.
+// next/font/google is a build-time transform that fails under Vitest. Its exports
+// are all called the same way (options object → { style.fontFamily, variable }),
+// so a Proxy returns a deterministic stub for EVERY font name the module imports,
+// keeping this mock stable as the font list grows.
 vi.mock("next/font/google", () => ({
-  Cormorant_Garamond: () => ({ style: { fontFamily: "Cormorant" }, variable: "--font-cormorant" }),
-  Playfair_Display: () => ({ style: { fontFamily: "Playfair" }, variable: "--font-playfair" }),
-  Inter: () => ({ style: { fontFamily: "Inter" }, variable: "--font-inter" }),
-  DM_Serif_Display: () => ({ style: { fontFamily: "DMSerif" }, variable: "--font-dm-serif" }),
-  Libre_Baskerville: () => ({ style: { fontFamily: "Libre" }, variable: "--font-libre" }),
-  Caveat: () => ({ style: { fontFamily: "Caveat" }, variable: "--font-caveat" }),
+  __esModule: true,
+  default: undefined,
+  ...new Proxy(
+    {},
+    {
+      get: (_t, name: string) => () => ({
+        style: { fontFamily: String(name) },
+        variable: `--font-${String(name).toLowerCase()}`,
+      }),
+    }
+  ),
 }))
 
-import { FONT_OPTIONS, resolveFontFamily } from "./fonts"
+import { FONT_OPTIONS, FONT_CATEGORIES, fontVariables, resolveFontFamily } from "./fonts"
 
 describe("FONT_OPTIONS", () => {
-  it("has exactly 7 entries with Caveat appended last (AC7 order preserved)", () => {
-    expect(FONT_OPTIONS.map((o) => o.label)).toEqual([
-      "Cormorant Garamond Italic",
-      "Playfair Display Italic",
-      "Inter",
-      "DM Serif Display",
-      "Libre Baskerville Italic",
-      "System",
-      "Caveat",
-    ])
+  it("has ~30 entries, all with a label/family/category", () => {
+    expect(FONT_OPTIONS.length).toBeGreaterThanOrEqual(28)
+    for (const o of FONT_OPTIONS) {
+      expect(o.label).toBeTruthy()
+      expect(o.family).toBeTruthy()
+      expect(FONT_CATEGORIES).toContain(o.category)
+    }
   })
 
-  it("resolves Caveat to a non-empty render family (not the raw label)", () => {
-    expect(resolveFontFamily("Caveat")).toBe("Caveat")
-    expect(resolveFontFamily("Caveat")).toBeTruthy()
-  })
-
-  it("defaults to Cormorant Garamond Italic first", () => {
+  it("defaults to Cormorant Garamond Italic first (the seeded label)", () => {
     expect(FONT_OPTIONS[0].label).toBe("Cormorant Garamond Italic")
   })
 
-  it("keeps System mapped to serif (now second-to-last, before appended Caveat)", () => {
-    expect(FONT_OPTIONS.find((o) => o.label === "System")).toEqual({ label: "System", family: "serif" })
+  it("labels are unique", () => {
+    const labels = FONT_OPTIONS.map((o) => o.label)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 
-  it("ends with Caveat (appended last, Story 3.5)", () => {
-    expect(FONT_OPTIONS[FONT_OPTIONS.length - 1].label).toBe("Caveat")
+  it("keeps System mapped to serif, in the Serif group", () => {
+    const sys = FONT_OPTIONS.find((o) => o.label === "System")!
+    expect(sys.family).toBe("serif")
+    expect(sys.category).toBe("Serif")
+  })
+
+  it("has at least one option per category", () => {
+    for (const cat of FONT_CATEGORIES) {
+      expect(FONT_OPTIONS.some((o) => o.category === cat)).toBe(true)
+    }
+  })
+
+  it("exposes one CSS variable per google-font option (System has none)", () => {
+    // Every option except "System" (the device serif) is backed by a webfont.
+    const webfontCount = FONT_OPTIONS.filter((o) => o.label !== "System").length
+    expect(fontVariables.length).toBe(webfontCount)
   })
 })
 
@@ -51,6 +65,7 @@ describe("resolveFontFamily", () => {
 
   it("maps a known label to a non-empty render family", () => {
     expect(resolveFontFamily("Cormorant Garamond Italic")).toBeTruthy()
+    expect(resolveFontFamily("Caveat")).toBeTruthy()
   })
 
   it("falls back to the passed string for an unknown label", () => {

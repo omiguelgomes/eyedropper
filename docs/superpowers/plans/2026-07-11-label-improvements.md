@@ -590,9 +590,20 @@ Delete `handleApplyToAll` (`:614-619`) and its now-unused `applyFieldToAll` impo
 Run: `npx vitest run components/Editor/LabelPanel.test.tsx && npx tsc --noEmit`
 Expected: PASS, no type errors.
 
-Note: `lib/apply-to-all.ts` and its test are now unused by the app but not deleted (pre-existing code; out of scope to remove — mention in the final summary).
+- [ ] **Step 6: Delete the now-unused `apply-to-all` module + test**
 
-- [ ] **Step 6: Commit**
+`applyFieldToAll` has no remaining callers after this task. Delete both files:
+
+```bash
+git rm lib/apply-to-all.ts lib/apply-to-all.test.ts
+```
+
+Confirm nothing else imports it:
+
+Run: `grep -rn "apply-to-all\|applyFieldToAll" lib components app`
+Expected: no matches.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add components/Editor/index.tsx components/Editor/LabelPanel.tsx components/Editor/LabelPanel.test.tsx

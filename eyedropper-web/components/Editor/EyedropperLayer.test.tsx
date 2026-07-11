@@ -182,9 +182,13 @@ vi.mock("react-konva", async (importOriginal) => {
 
 import EyedropperLayer, { getSwatchPos } from "./EyedropperLayer"
 
-const defaultStyle = loadStyles()[0]
+// A flat (non-textured) style for the fill+stroke Circle path. styles[0] is now
+// the ring-less pastel, so pick "float" explicitly for the flat-path tests.
+const defaultStyle = loadStyles().find((s) => s.name === "float")!
 
+// Ring-less pastel (pencil texture, no border) and a ringed pastel (has border).
 const pastelStyle = loadStyles().find((s) => s.name === "pastel")!
+const pastelRingStyle = loadStyles().find((s) => s.name === "pastel ring")!
 // A minimal stand-in for a decoded texture; the mocked Konva Image only checks truthiness.
 const fakeTexture = {} as HTMLImageElement
 
@@ -335,14 +339,14 @@ describe("EyedropperLayer", () => {
     expect(marker.getAttribute("data-radius")).toBe("6")
   })
 
-  it("no marker Circle when markerStyle === 'none' (only the swatch renders)", () => {
-    const noneStyle = { ...defaultStyle, markerStyle: "none" as const }
+  it("always renders a marker Circle (a ring marker) alongside the swatch", () => {
+    // markerStyle "none" was removed with the minimal style; every style now has
+    // a visible marker, so a laid-out point renders swatch + marker = 2 circles.
     const points = [makePoint("p1", 100, 200, "#ff0000")]
     const { getAllByTestId } = render(
-      <EyedropperLayer points={points} {...DEFAULT_PROPS} style={noneStyle} />
+      <EyedropperLayer points={points} {...DEFAULT_PROPS} style={defaultStyle} />
     )
-    // Only the swatch Circle, no marker.
-    expect(getAllByTestId("circle")).toHaveLength(1)
+    expect(getAllByTestId("circle")).toHaveLength(2)
   })
 
   it("dot marker stays draggable and selectable in select mode", () => {
@@ -923,13 +927,13 @@ describe("EyedropperLayer", () => {
       expect(queryAllByTestId("swatch-group")).toHaveLength(0)
     })
 
-    it("pastel style with both textures renders disc + pencil(multiply) + destination-in clip + border (AC3)", () => {
+    it("ringed pastel with both textures renders disc + pencil(multiply) + destination-in clip + border (AC3)", () => {
       const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
       const { getAllByTestId } = render(
         <EyedropperLayer
           points={points}
           {...DEFAULT_PROPS}
-          style={pastelStyle}
+          style={pastelRingStyle}
           pencilTexture={fakeTexture}
           borderTexture={fakeTexture}
         />
@@ -949,15 +953,35 @@ describe("EyedropperLayer", () => {
       expect(getAllByTestId("swatch-group")).toHaveLength(1)
     })
 
-    it("pastel style but a texture still null → falls back to the flat Circle, no crash", () => {
+    it("ring-less pastel renders pencil texture but NO border image (pencil disc only)", () => {
       const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
-      const { getAllByTestId, queryAllByTestId } = render(
+      const { getAllByTestId } = render(
         <EyedropperLayer
           points={points}
           {...DEFAULT_PROPS}
           style={pastelStyle}
           pencilTexture={fakeTexture}
-          borderTexture={null}
+          borderTexture={fakeTexture}
+        />
+      )
+      // Still textured (pencil multiply + destination-in), but the style has no
+      // borderTexture so the "over" ring image is omitted → no zero-gco image.
+      const gcos = getAllByTestId("konva-image").map((i) => i.getAttribute("data-gco"))
+      expect(gcos).toContain("multiply")
+      expect(gcos).toContain("destination-in")
+      expect(gcos.filter((g) => g === "")).toHaveLength(0)
+      expect(getAllByTestId("swatch-group")).toHaveLength(1)
+    })
+
+    it("pastel style but the pencil is still null → falls back to the flat Circle, no crash", () => {
+      const points = [makePoint("p1", 100, 200, "#aabbcc", "left", 300)]
+      const { getAllByTestId, queryAllByTestId } = render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          style={pastelRingStyle}
+          pencilTexture={null}
+          borderTexture={fakeTexture}
         />
       )
       // No texture images; swatch is the flat Circle fallback.

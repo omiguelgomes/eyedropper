@@ -1,7 +1,7 @@
 "use client"
 
 import type { EyedropperPoint } from "@/lib/types"
-import { FONT_OPTIONS } from "@/lib/fonts"
+import { FONT_OPTIONS, FONT_CATEGORIES } from "@/lib/fonts"
 
 interface Props {
   label: EyedropperPoint["label"]
@@ -36,10 +36,14 @@ export default function LabelPanel({ label, onUpdate, onApplyToAll }: Props) {
         onChange={(e) => onUpdate({ fontFamily: e.target.value })}
         className="w-full text-sm px-2 py-1 mb-3 rounded border border-[var(--color-border)] bg-white text-[var(--color-text-primary)]"
       >
-        {FONT_OPTIONS.map((o) => (
-          <option key={o.label} value={o.label}>
-            {o.label}
-          </option>
+        {FONT_CATEGORIES.map((cat) => (
+          <optgroup key={cat} label={cat}>
+            {FONT_OPTIONS.filter((o) => o.category === cat).map((o) => (
+              <option key={o.label} value={o.label}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
 

@@ -8,7 +8,7 @@ const H = 1422
 const swatchPos = { x: 200, y: 300 }
 
 describe("getLabelPosition", () => {
-  describe("labelPosition 'below' (grid)", () => {
+  describe("labelPosition 'below'", () => {
     it("centers the label under a top-edge swatch", () => {
       const pos = getLabelPosition(swatchPos, "top", "below", R, W, H)
       expect(pos.x).toBe(swatchPos.x)
@@ -48,18 +48,6 @@ describe("getLabelPosition", () => {
         expect(pos.x).toBe(swatchPos.x + R + LABEL_GAP)
         expect(pos.y).toBe(swatchPos.y)
       }
-    })
-  })
-
-  describe("labelPosition 'none' (minimal)", () => {
-    it("uses the same rule as 'beside' so a field still appears next to the swatch", () => {
-      const left = getLabelPosition(swatchPos, "left", "none", R, W, H)
-      expect(left.x).toBe(swatchPos.x + R + LABEL_GAP)
-      expect(left.y).toBe(swatchPos.y)
-
-      const right = getLabelPosition(swatchPos, "right", "none", R, W, H)
-      expect(right.x).toBe(swatchPos.x - R - LABEL_GAP)
-      expect(right.y).toBe(swatchPos.y)
     })
   })
 

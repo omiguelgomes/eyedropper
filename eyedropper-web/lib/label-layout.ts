@@ -8,9 +8,9 @@ export const LABEL_GAP = 8
 // Pure: a function of its args only. The caller supplies the already-computed
 // swatch position (from getSwatchPos), so this never reads swatchOrder.
 //
-// - "below" (grid): under the swatch — but ABOVE it for a bottom-edge swatch,
+// - "below": under the swatch — but ABOVE it for a bottom-edge swatch,
 //   whose "below" would fall off the bottom of the canvas.
-// - "beside"/"none": to the inner side of the swatch at its vertical center.
+// - "beside": to the inner side of the swatch at its vertical center.
 //   A left-edge swatch → label to the right; a right-edge swatch → label to the
 //   left; top/bottom/auto default to the right.
 //
@@ -31,7 +31,6 @@ export function getLabelPosition(
     const dy = side === "bottom" ? -(swatchRadius + LABEL_GAP) : swatchRadius + LABEL_GAP
     pos = { x: swatchPos.x, y: swatchPos.y + dy }
   } else if (side === "right") {
-    // "beside" and "none" share the same rule.
     pos = { x: swatchPos.x - swatchRadius - LABEL_GAP, y: swatchPos.y }
   } else {
     pos = { x: swatchPos.x + swatchRadius + LABEL_GAP, y: swatchPos.y }
