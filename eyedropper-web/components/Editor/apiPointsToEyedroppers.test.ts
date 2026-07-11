@@ -122,7 +122,7 @@ describe("claudePointsToEyedroppers", () => {
     expect(p.label.x).toBe(5)
     expect(p.label.y).toBe(7)
     expect(p.label.visible).toBe(true)
-    expect(p.label.fontSize).toBe(16)
+    expect(p.label.fontSize).toBe(35)
     expect(p.label.fontFamily).toBe("Cormorant Garamond Italic")
     expect(p.label.color).toBe("#1a1a1a")
   })

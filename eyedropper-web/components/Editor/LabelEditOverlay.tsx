@@ -3,6 +3,7 @@
 import { useRef } from "react"
 import type { EyedropperPoint } from "@/lib/types"
 import { resolveFontFamily } from "@/lib/fonts"
+import { measureLabelWidth } from "@/lib/measure-text"
 
 interface Props {
   points: EyedropperPoint[]
@@ -61,6 +62,14 @@ export default function LabelEditOverlay({
         // Screen-space font size — the Konva Text renders at label.fontSize in
         // canvas space, so the input must scale by the same factor to line up.
         const screenFont = p.label.fontSize * scale
+        // Screen-space width matching the measured glyph run (same measurement
+        // getLabelPosition used to place a right-side label so its RIGHT edge sits
+        // at the gap). A small floor keeps empty labels clickable. Using the fixed
+        // 10ch box instead made right-side boxes overshoot rightward onto the swatch.
+        const screenWidth = Math.max(
+          measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily) * scale,
+          screenFont
+        )
 
         return (
           <div
@@ -149,10 +158,10 @@ export default function LabelEditOverlay({
               onFocus={() => onSelectPoint(p.id)}
               // Transparent text/background/border and zero box padding so the
               // input occupies the exact footprint of the Konva Text beneath it;
-              // only the caret is visible. Width tracks the content (approx via ch)
-              // so the click target hugs the glyphs and inputs don't overlap.
-              // A white outline (drawn OUTSIDE the box) makes each input visible
-              // in edit mode without shifting the glyphs a border would.
+              // only the caret is visible. Width tracks the measured glyph run so
+              // the box hugs the text and (for right-side labels) doesn't overshoot
+              // the origin onto the swatch. A white outline (drawn OUTSIDE the box)
+              // makes each input visible in edit mode without shifting the glyphs.
               style={{
                 display: "block",
                 margin: 0,
@@ -166,7 +175,7 @@ export default function LabelEditOverlay({
                 fontFamily: resolveFontFamily(p.label.fontFamily),
                 lineHeight: 1,
                 height: screenFont,
-                width: `${Math.max(p.label.text.length, 10)}ch`,
+                width: screenWidth,
               }}
             />
           </div>

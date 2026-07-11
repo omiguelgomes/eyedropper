@@ -103,7 +103,7 @@ export function apiPointsToEyedroppers(
       visible: true,
       x: p.x,
       y: p.y,
-      fontSize: 16,
+      fontSize: 35,
       fontFamily: "Cormorant Garamond Italic",
       color: "#1a1a1a",
     },
@@ -128,7 +128,7 @@ export function claudePointsToEyedroppers(
       visible: true,
       x: p.x,
       y: p.y,
-      fontSize: 16,
+      fontSize: 35,
       fontFamily: "Cormorant Garamond Italic",
       color: "#1a1a1a",
     },
@@ -604,6 +604,17 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     (id: string, patch: Partial<EyedropperPoint["label"]>) => {
       // Presentation fields (font/size/color) apply to EVERY label by default;
       // text/visibility/position stay scoped to the one point.
+      // A right-side "beside" label is anchored by its RIGHT edge (origin =
+      // swatchCenter - r - gap - textWidth), so its stored x depends on the text
+      // width. Labels are seeded EMPTY on edit-mode entry, so typing text would
+      // otherwise let the label grow rightward over the swatch. Re-anchor the
+      // edited label as its text changes (reusing edit-mode-entry's rule) so its
+      // right edge stays pinned at the gap. Scoped to text-only edits in edit mode
+      // so it never clobbers a label the artist has since dragged, and so font/
+      // size/color broadcasts (which can happen in display mode) leave x/y alone.
+      const layout = canvasLayoutRef.current
+      const style = styleRef.current
+      const reanchor = labelEditModeRef.current && layout != null && "text" in patch
       setPoints((prev) =>
         prev.map((p) => {
           const isTarget = p.id === id
@@ -614,6 +625,16 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             } else if (isTarget) {
               ;(next as Record<string, unknown>)[k] = v
             }
+          }
+          if (reanchor && isTarget && p.swatchOrder !== null) {
+            const swatchPos = getSwatchPos(p, layout.canvasWidth, layout.canvasHeight, style.swatchRadius)
+            const w = measureLabelWidth(next.text, next.fontSize, next.fontFamily)
+            const anchor = getLabelPosition(
+              swatchPos, p.swatchSide, style.labelPosition, style.swatchRadius,
+              layout.canvasWidth, layout.canvasHeight, w, next.fontSize
+            )
+            next.x = anchor.x
+            next.y = anchor.y
           }
           return { ...p, label: next }
         })

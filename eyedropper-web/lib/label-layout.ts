@@ -10,8 +10,10 @@ export const LABEL_GAP = 8
 //
 // - "below": centered under the swatch — origin x = swatchCenterX - labelWidth/2;
 //   ABOVE a bottom-edge swatch, whose "below" would fall off the canvas floor.
-// - "beside": to the inner side of the swatch at its vertical center. Left-edge
-//   swatch → label right; right-edge swatch → label left; top/bottom/auto → right.
+// - "beside": to the inner side of the swatch, vertically centered on it (origin
+//   y = swatchCenterY - labelHeight/2). Left-edge swatch → label right; right-edge
+//   swatch → label left (right edge at the gap, so origin subtracts labelWidth);
+//   top/bottom/auto → right.
 //
 // The whole BOX is finally clamped into [0, canvasWidth-labelWidth] ×
 // [0, canvasHeight-labelHeight] so no part of the label seeds off-screen.
@@ -30,9 +32,18 @@ export function getLabelPosition(
     const dy = side === "bottom" ? -(swatchRadius + LABEL_GAP) : swatchRadius + LABEL_GAP
     pos = { x: swatchPos.x - labelWidth / 2, y: swatchPos.y + dy }
   } else if (side === "right") {
-    pos = { x: swatchPos.x - swatchRadius - LABEL_GAP, y: swatchPos.y }
+    // Right-edge swatch → label to its LEFT: the label's right edge lands at the
+    // gap, so its origin (top-left) is offset further left by the label width.
+    // Vertically centered on the swatch (Konva Text draws from its top-left).
+    pos = {
+      x: swatchPos.x - swatchRadius - LABEL_GAP - labelWidth,
+      y: swatchPos.y - labelHeight / 2,
+    }
   } else {
-    pos = { x: swatchPos.x + swatchRadius + LABEL_GAP, y: swatchPos.y }
+    pos = {
+      x: swatchPos.x + swatchRadius + LABEL_GAP,
+      y: swatchPos.y - labelHeight / 2,
+    }
   }
   return {
     x: Math.max(0, Math.min(canvasWidth - labelWidth, pos.x)),
