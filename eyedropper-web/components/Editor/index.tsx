@@ -85,8 +85,14 @@ export function canvasClickToImagePoint(
   return clampToImage(imageX, imageY, layout.canvasWidth, imageHeight)
 }
 
+// Base label font size at 1× scale. New points seed at BASE_FONT_SIZE ×
+// currentScale so a point added while the size slider is at 2× matches the
+// existing points, which were themselves scaled up.
+const BASE_FONT_SIZE = 35
+
 export function apiPointsToEyedroppers(
-  raw: { x: number; y: number; color: string }[]
+  raw: { x: number; y: number; color: string }[],
+  fontSize: number = BASE_FONT_SIZE
 ): EyedropperPoint[] {
   return raw.map((p) => ({
     id: `point-${pointIdCounter++}`,
@@ -103,7 +109,7 @@ export function apiPointsToEyedroppers(
       visible: true,
       x: p.x,
       y: p.y,
-      fontSize: 35,
+      fontSize,
       fontFamily: "Cormorant Garamond Italic",
       color: "#1a1a1a",
     },
@@ -111,7 +117,8 @@ export function apiPointsToEyedroppers(
 }
 
 export function claudePointsToEyedroppers(
-  raw: { x: number; y: number; description: string }[]
+  raw: { x: number; y: number; description: string }[],
+  fontSize: number = BASE_FONT_SIZE
 ): EyedropperPoint[] {
   return raw.map((p) => ({
     id: `point-${pointIdCounter++}`,
@@ -128,7 +135,7 @@ export function claudePointsToEyedroppers(
       visible: true,
       x: p.x,
       y: p.y,
-      fontSize: 35,
+      fontSize,
       fontFamily: "Cormorant Garamond Italic",
       color: "#1a1a1a",
     },
@@ -165,6 +172,40 @@ export function seedNewLabels(
   })
 }
 
+// Apply a global size-scale change to every point: scale each label's fontSize
+// by next/prev, and move every laid-out label PROPORTIONALLY with its swatch. As
+// the radius grows the swatch's rendered center and outer edge shift; we keep the
+// label's offset from the swatch center and scale it by the same ratio, so the
+// label tracks the swatch in lockstep rather than snapping to a canonical anchor.
+// This matters most at the first slider tick (ratio ≈ 1): the label barely moves
+// instead of jumping. Points not yet laid out (swatchOrder null) keep their label
+// position — only their fontSize scales. `baseStyle` is the unscaled style; the
+// swatch center is computed at both the old and new radius. Exported for unit testing.
+export function rescalePointsForSize(
+  points: EyedropperPoint[],
+  baseStyle: Style,
+  prev: number,
+  next: number,
+  canvasWidth: number,
+  canvasHeight: number
+): EyedropperPoint[] {
+  const ratio = next / prev
+  const oldRadius = baseStyle.swatchRadius * prev
+  const newRadius = baseStyle.swatchRadius * next
+  return points.map((p) => {
+    const label = { ...p.label, fontSize: p.label.fontSize * ratio }
+    if (p.swatchOrder === null) return { ...p, label }
+    const oldSwatch = getSwatchPos(p, canvasWidth, canvasHeight, oldRadius)
+    const newSwatch = getSwatchPos(p, canvasWidth, canvasHeight, newRadius)
+    const offsetX = (p.label.x - oldSwatch.x) * ratio
+    const offsetY = (p.label.y - oldSwatch.y) * ratio
+    const w = measureLabelWidth(label.text, label.fontSize, label.fontFamily)
+    const x = Math.max(0, Math.min(canvasWidth - w, newSwatch.x + offsetX))
+    const y = Math.max(0, Math.min(canvasHeight - label.fontSize, newSwatch.y + offsetY))
+    return { ...p, label: { ...label, x, y } }
+  })
+}
+
 export default function EditorShell({ imageId, claudeAvailable }: EditorShellProps) {
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
@@ -186,13 +227,43 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   const imageHeightRef = useRef<number>(0)
   const styles = useMemo(() => loadStyles(), [])
   const [style, setStyle] = useState<Style>(() => styles[0])
-  const styleRef = useRef<Style>(style)
-  // Keep styleRef synced with the live style — the swatch drag handlers read
-  // styleRef.current.swatchRadius (handleSwatchDragMove/End) and must see the
-  // current radius after a style switch (minimal=40 vs 48 for the others).
+  // Mirror the UNSCALED base style so handleSizeScaleChange (deps []) can derive
+  // the swatch radius at the new scale when re-anchoring labels.
+  const baseStyleRef = useRef<Style>(style)
   useEffect(() => {
-    styleRef.current = style
+    baseStyleRef.current = style
   }, [style])
+  // Global size multiplier (1×–2.5×). Scales the swatch, connector, marker, and
+  // (via handleSizeScaleChange) the label font size in lockstep. Stored on the
+  // base style only implicitly — the scaled dimensions live in `scaledStyle`.
+  const [sizeScale, setSizeScale] = useState(1)
+  const sizeScaleRef = useRef(sizeScale)
+  useEffect(() => {
+    sizeScaleRef.current = sizeScale
+  }, [sizeScale])
+  // The style actually rendered: base style with its size dimensions multiplied
+  // by sizeScale. Texture paths, colors, and layout mode carry through the
+  // spread unchanged. Everything downstream (layers, drag handlers, layout) uses
+  // this — the raw `style` is only for StylePicker's active-name highlight.
+  const scaledStyle = useMemo<Style>(
+    () => ({
+      ...style,
+      swatchRadius: style.swatchRadius * sizeScale,
+      // Connector grows faster than the swatch: only the GROWTH above 1× is
+      // amplified (×1.5), so at rest (1×) the line stays at the style's designed
+      // width rather than jumping to 1.5× it.
+      connectorWidth: style.connectorWidth * (1 + (sizeScale - 1) * 1.5),
+      swatchBorderWidth: style.swatchBorderWidth * sizeScale,
+    }),
+    [style, sizeScale]
+  )
+  const styleRef = useRef<Style>(scaledStyle)
+  // Keep styleRef synced with the live SCALED style — the swatch drag handlers
+  // read styleRef.current.swatchRadius (handleSwatchDragMove/End) and must see
+  // the current scaled radius after a style switch or a size-slider change.
+  useEffect(() => {
+    styleRef.current = scaledStyle
+  }, [scaledStyle])
   const pointsRef = useRef<EyedropperPoint[]>([])
   // On-screen scale (display px per canvas px), mirrored in a ref so the swatch
   // drag handlers can read it without depending on displaySize (keeps their deps
@@ -329,10 +400,11 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       })
       const data = res.ok ? await res.json() : null
       if (data && Array.isArray(data.points)) {
+        const seedFont = BASE_FONT_SIZE * sizeScaleRef.current
         let newPoints: EyedropperPoint[] =
           method === "slic"
-            ? apiPointsToEyedroppers(data.points)
-            : claudePointsToEyedroppers(data.points)
+            ? apiPointsToEyedroppers(data.points, seedFont)
+            : claudePointsToEyedroppers(data.points, seedFont)
 
         if (hiddenCanvasCtxRef.current) {
           newPoints = newPoints.map((p) => ({
@@ -434,6 +506,11 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       const marker = dragged
         ? { x: dragged.x, y: dragged.y + layout.imageOffsetY }
         : { x: canvasX, y: canvasY }
+      // The swatch's rendered center BEFORE this move (edge pos on the first frame,
+      // then its live free coords) — the label follows the swatch by this delta.
+      const oldSwatch = dragged
+        ? getSwatchPos(dragged, layout.canvasWidth, layout.canvasHeight, r)
+        : { x: canvasX, y: canvasY }
       // Rendered centers of every OTHER swatch (edge or free), as snap targets.
       // Free-floating requires BOTH coords set (matches getSwatchPos's free branch).
       const others = current
@@ -451,8 +528,16 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
       })
 
+      // Carry the label with the swatch: shift it by the same delta the swatch
+      // moved this frame, so their relative offset (and any manual nudge) is kept.
+      const dx = snapped.x - oldSwatch.x
+      const dy = snapped.y - oldSwatch.y
       setPoints((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, swatchX: snapped.x, swatchY: snapped.y } : p))
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, swatchX: snapped.x, swatchY: snapped.y, label: { ...p.label, x: p.label.x + dx, y: p.label.y + dy } }
+            : p
+        )
       )
       setSnapGuides(snapped.guides)
       setDistribution(snapped.distribution)
@@ -481,8 +566,16 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         others, canvasX, canvasY, r, layout.canvasWidth, layout.canvasHeight
       )
 
+      // The label already tracked to (canvasX, canvasY) during the last dragMove;
+      // if overlap-resolution nudged the swatch, carry the label by that residual.
+      const dx = resolved.x - canvasX
+      const dy = resolved.y - canvasY
       setPoints((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, swatchX: resolved.x, swatchY: resolved.y } : p))
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, swatchX: resolved.x, swatchY: resolved.y, label: { ...p.label, x: p.label.x + dx, y: p.label.y + dy } }
+            : p
+        )
       )
       // Story 5.2/5.3: guides and the distribution cues are ephemeral — clear them
       // when the drag ends.
@@ -530,7 +623,10 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
 
     const { x, y } = point
     const color = sampleColor(ctx, x, y)
-    const [newPoint] = apiPointsToEyedroppers([{ x, y, color }])
+    const [newPoint] = apiPointsToEyedroppers(
+      [{ x, y, color }],
+      BASE_FONT_SIZE * sizeScaleRef.current
+    )
 
     setPoints((prev) => {
       const withNew = [...prev, newPoint]
@@ -752,6 +848,26 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     setStyle(next)
   }, [])
 
+  // Move the global size slider. Geometry (swatch/connector/marker) scales
+  // automatically via scaledStyle, but each label's fontSize is per-point, so
+  // rescale them all by the ratio newScale/prevScale — and re-anchor every
+  // laid-out label to its swatch at the new scale, since the swatch's rendered
+  // center shifts as its radius grows (rescalePointsForSize). This physically
+  // moves the independent font-size slider to the new on-screen size (the artist
+  // can still grab it to fine-tune afterwards). Reads the previous scale, layout,
+  // and base style from refs so it doesn't nest setPoints in a setSizeScale updater.
+  const handleSizeScaleChange = useCallback((next: number) => {
+    const prev = sizeScaleRef.current
+    if (next === prev) return
+    setSizeScale(next)
+    const layout = canvasLayoutRef.current
+    setPoints((pts) =>
+      layout
+        ? rescalePointsForSize(pts, baseStyleRef.current, prev, next, layout.canvasWidth, layout.canvasHeight)
+        : pts.map((p) => ({ ...p, label: { ...p.label, fontSize: p.label.fontSize * (next / prev) } }))
+    )
+  }, [])
+
   const handleDeselect = useCallback(() => {
     setSelectedPointId(null)
   }, [])
@@ -877,6 +993,26 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         </section>
         <section>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
+            Size
+          </h3>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              aria-label="Overall size"
+              min={1}
+              max={2.5}
+              step={0.1}
+              value={sizeScale}
+              onChange={(e) => handleSizeScaleChange(Number(e.target.value))}
+              className="flex-1"
+            />
+            <span className="text-xs text-[var(--color-text-primary)] font-mono w-10 text-right">
+              {sizeScale.toFixed(1)}×
+            </span>
+          </div>
+        </section>
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
             Labels
           </h3>
           <button
@@ -912,7 +1048,8 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             displayWidth={displaySize.width}
             displayHeight={displaySize.height}
             points={points}
-            style={style}
+            style={scaledStyle}
+            sizeScale={sizeScale}
             interactionMode={interactionMode}
             pencilTexture={pencilTexture}
             borderTexture={borderTexture}

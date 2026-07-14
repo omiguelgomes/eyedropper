@@ -197,6 +197,7 @@ const DEFAULT_PROPS = {
   canvasWidth: 400,
   canvasHeight: 800,
   style: defaultStyle,
+  sizeScale: 1,
   interactionMode: "select" as const,
   // Null by default → every existing test stays on the flat Circle path.
   pencilTexture: null as HTMLImageElement | null,
@@ -337,6 +338,29 @@ describe("EyedropperLayer", () => {
     // Filled with the marker color, dot radius 6.
     expect(marker.getAttribute("data-fill")).toBe(dotStyle.markerColor)
     expect(marker.getAttribute("data-radius")).toBe("6")
+  })
+
+  it("sizeScale multiplies the ring marker radius and stroke", () => {
+    const points = [makePoint("p1", 100, 200, "#ff0000")]
+    const { getAllByTestId } = render(
+      <EyedropperLayer points={points} {...DEFAULT_PROPS} sizeScale={2} />
+    )
+    const circles = getAllByTestId("circle")
+    const marker = circles[circles.length - 1]
+    // Ring base radius 12 → 24 at 2×.
+    expect(marker.getAttribute("data-radius")).toBe("24")
+  })
+
+  it("sizeScale multiplies the dot marker radius", () => {
+    const dotStyle = { ...defaultStyle, markerStyle: "dot" as const }
+    const points = [makePoint("p1", 100, 200, "#ff0000")]
+    const { getAllByTestId } = render(
+      <EyedropperLayer points={points} {...DEFAULT_PROPS} style={dotStyle} sizeScale={3} />
+    )
+    const circles = getAllByTestId("circle")
+    const marker = circles[circles.length - 1]
+    // Dot base radius 6 → 18 at 3×.
+    expect(marker.getAttribute("data-radius")).toBe("18")
   })
 
   it("always renders a marker Circle (a ring marker) alongside the swatch", () => {

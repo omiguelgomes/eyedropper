@@ -52,14 +52,14 @@ export default function LabelPanel({ label, onUpdate }: Props) {
         <input
           type="range"
           aria-label="Font size"
-          min={12}
-          max={48}
+          min={8}
+          max={120}
           value={label.fontSize}
           onChange={(e) => onUpdate({ fontSize: Number(e.target.value) })}
           className="flex-1"
         />
         <span className="text-xs text-[var(--color-text-primary)] font-mono w-10 text-right">
-          {label.fontSize}px
+          {Math.round(label.fontSize)}px
         </span>
       </div>
 

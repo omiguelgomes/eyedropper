@@ -2,7 +2,7 @@ import type { EyedropperPoint } from "./types"
 import type { Style } from "./styles"
 
 // Gap (px, canvas space) between the swatch edge and the label.
-export const LABEL_GAP = 8
+export const LABEL_GAP = 32
 
 // Compute the canvas-space ORIGIN (top-left) where a label sits relative to its
 // swatch. Pure. The caller supplies the swatch position (getSwatchPos) and the

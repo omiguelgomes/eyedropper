@@ -72,12 +72,12 @@ describe("LabelPanel", () => {
     expect(onUpdate).toHaveBeenCalledWith({ fontFamily: "Inter" })
   })
 
-  it("renders a 12-48 size slider and calls onUpdate({ fontSize: number }) (AC4)", () => {
+  it("renders an 8-120 size slider and calls onUpdate({ fontSize: number }) (AC4)", () => {
     const onUpdate = vi.fn()
     const { getByLabelText } = render(<LabelPanel {...makeProps({ onUpdate })} />)
     const slider = getByLabelText("Font size") as HTMLInputElement
-    expect(slider.min).toBe("12")
-    expect(slider.max).toBe("48")
+    expect(slider.min).toBe("8")
+    expect(slider.max).toBe("120")
     expect(slider.value).toBe("24")
     fireEvent.change(slider, { target: { value: "32" } })
     expect(onUpdate).toHaveBeenCalledWith({ fontSize: 32 })

@@ -14,6 +14,10 @@ interface Props {
   canvasWidth: number
   canvasHeight: number
   style: Style
+  // Global size multiplier for the marker dot/ring, whose base sizes (dot r=6,
+  // ring r=12, ring stroke=2) are hardcoded here rather than on the style. The
+  // swatch/connector/border are already scaled into `style` upstream.
+  sizeScale: number
   interactionMode: "select" | "add"
   // Decoded pastel textures, shared across all swatches. Null until loaded (or
   // when the active style is not textured); the swatch falls back to flat then.
@@ -165,6 +169,7 @@ export default function EyedropperLayer({
   canvasWidth,
   canvasHeight,
   style,
+  sizeScale,
   interactionMode,
   pencilTexture,
   borderTexture,
@@ -305,14 +310,15 @@ export default function EyedropperLayer({
               />
             )}
 
-            {/* Marker — hollow ring or filled dot depending on style.markerStyle */}
+            {/* Marker — hollow ring or filled dot depending on style.markerStyle.
+                Base sizes scaled by the global sizeScale in lockstep with the swatch. */}
             <Circle
               x={markerX}
               y={markerY}
-              radius={style.markerStyle === "dot" ? 6 : 12}
+              radius={(style.markerStyle === "dot" ? 6 : 12) * sizeScale}
               fill={style.markerStyle === "dot" ? style.markerColor : undefined}
               stroke={style.markerColor}
-              strokeWidth={style.markerStyle === "dot" ? 0 : 2}
+              strokeWidth={style.markerStyle === "dot" ? 0 : 2 * sizeScale}
               draggable={interactionMode === "select"}
               onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
                 e.evt.preventDefault()

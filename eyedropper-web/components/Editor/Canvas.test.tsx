@@ -85,6 +85,7 @@ function makeProps(overrides?: Partial<Parameters<typeof Canvas>[0]>) {
     displayHeight: 711,
     points: [],
     style: loadStyles()[0],
+    sizeScale: 1,
     interactionMode: "select" as const,
     labelEditMode: false,
     snapGuides: [],

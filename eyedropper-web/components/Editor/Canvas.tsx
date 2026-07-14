@@ -24,6 +24,9 @@ interface CanvasProps {
   displayHeight: number
   points: EyedropperPoint[]
   style: Style
+  // Global size multiplier; forwarded to EyedropperLayer to scale the marker
+  // dot/ring, whose base sizes are hardcoded there (not on the style).
+  sizeScale: number
   interactionMode: "select" | "add"
   labelEditMode: boolean
   snapGuides: SnapGuide[]
@@ -56,6 +59,7 @@ export default function Canvas({
   displayHeight,
   points,
   style,
+  sizeScale,
   interactionMode,
   labelEditMode,
   snapGuides,
@@ -145,6 +149,7 @@ export default function Canvas({
         canvasWidth={canvasLayout.canvasWidth}
         canvasHeight={canvasLayout.canvasHeight}
         style={style}
+        sizeScale={sizeScale}
         interactionMode={interactionMode}
         pencilTexture={pencilTexture}
         borderTexture={borderTexture}

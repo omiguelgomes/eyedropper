@@ -21,11 +21,13 @@ import {
   claudePointsToEyedroppers,
   canvasClickToImagePoint,
   seedNewLabels,
+  rescalePointsForSize,
 } from "./index"
 import type { CanvasLayout } from "@/lib/canvas-to-916"
 import type { EyedropperPoint } from "@/lib/types"
 import { loadStyles } from "@/lib/styles"
 import { assignSwatchLayout } from "@/lib/swatch-layout"
+import { getSwatchPos } from "./EyedropperLayer"
 
 describe("apiPointsToEyedroppers", () => {
   it("returns an empty array for empty input", () => {
@@ -186,5 +188,59 @@ describe("seedNewLabels", () => {
     const result = seedNewLabels(before, before, style, W, H)
     expect(result[0].label.x).toBe(20)
     expect(result[0].label.y).toBe(300)
+  })
+})
+
+describe("rescalePointsForSize", () => {
+  const baseStyle = loadStyles().find((s) => s.name === "float")! // beside, r=48
+  const W = 800
+  const H = 1422
+  const offsetY = 100
+  const layout = (pts: EyedropperPoint[]) => assignSwatchLayout(pts, W, H, offsetY)
+  const laidOut = (x: number, y: number) => {
+    const before = apiPointsToEyedroppers([{ x, y, color: "#fff" }])
+    return seedNewLabels(before, layout(before), baseStyle, W, H)
+  }
+
+  it("scales every label's fontSize by the ratio", () => {
+    const pts = laidOut(20, 300)
+    const result = rescalePointsForSize(pts, baseStyle, 1, 2, W, H)
+    expect(result[0].label.fontSize).toBeCloseTo(pts[0].label.fontSize * 2)
+  })
+
+  it("moves a laid-out label proportionally with its swatch (offset scales by ratio)", () => {
+    // Left-edge swatch: center x = swatchRadius, which grows with scale. The
+    // label keeps its offset from the swatch center, scaled by the ratio — so it
+    // tracks the growing swatch instead of snapping to a canonical anchor.
+    const pts = laidOut(20, 300)
+    expect(pts[0].swatchSide).toBe("left")
+    const oldSwatchX = getSwatchPos(pts[0], W, H, baseStyle.swatchRadius * 1).x
+    const oldOffset = pts[0].label.x - oldSwatchX
+    const result = rescalePointsForSize(pts, baseStyle, 1, 2, W, H)
+    const newSwatchX = getSwatchPos(result[0], W, H, baseStyle.swatchRadius * 2).x
+    const newOffset = result[0].label.x - newSwatchX
+    // Offset from the swatch center scaled by exactly 2× (no clamp in play here).
+    expect(newOffset).toBeCloseTo(oldOffset * 2)
+    // Still clears the enlarged swatch (offset was positive → stays positive).
+    expect(result[0].label.x).toBeGreaterThan(baseStyle.swatchRadius * 2)
+  })
+
+  it("barely moves a label on the first tick (no jump at ratio ≈ 1)", () => {
+    const pts = laidOut(20, 300)
+    const before = pts[0].label
+    const result = rescalePointsForSize(pts, baseStyle, 1, 1.1, W, H)
+    const after = result[0].label
+    // A 10% scale bump moves the label by ~10% of its (small) swatch offset, not a
+    // teleport to a new anchor. The old canonical-anchor logic could jump it far.
+    expect(Math.abs(after.x - before.x)).toBeLessThan(baseStyle.swatchRadius)
+    expect(Math.abs(after.y - before.y)).toBeLessThan(baseStyle.swatchRadius)
+  })
+
+  it("leaves a not-laid-out point's label position alone (only fontSize scales)", () => {
+    const before = apiPointsToEyedroppers([{ x: 20, y: 300, color: "#fff" }]) // swatchOrder null
+    const result = rescalePointsForSize(before, baseStyle, 1, 2, W, H)
+    expect(result[0].label.x).toBe(20)
+    expect(result[0].label.y).toBe(300)
+    expect(result[0].label.fontSize).toBeCloseTo(before[0].label.fontSize * 2)
   })
 })
