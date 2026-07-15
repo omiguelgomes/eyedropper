@@ -46,7 +46,7 @@ interface CanvasProps {
   onPanBy: (screenDX: number, screenDY: number) => void
   onMarkerDragMove: (id: string, canvasX: number, canvasY: number) => void
   onMarkerDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
-  onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  onSwatchDragMove: (id: string, canvasX: number, canvasY: number, disableSnap: boolean) => { x: number; y: number }
   onSwatchDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onConnectorDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onConnectorDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }

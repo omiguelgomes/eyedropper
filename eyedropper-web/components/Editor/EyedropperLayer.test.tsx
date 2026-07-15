@@ -45,7 +45,7 @@ vi.mock("react-konva", async (importOriginal) => {
       children?: React.ReactNode
       x?: number; y?: number; draggable?: boolean
       dragBoundFunc?: DragBoundFunc
-      onDragMove?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
+      onDragMove?: (e: { evt: { altKey: boolean }; target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onDragEnd?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onMouseEnter?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
       onMouseLeave?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
@@ -72,8 +72,9 @@ vi.mock("react-konva", async (importOriginal) => {
             lastClickEvent.evt = evt
             onClick?.(evt)
           }}
-          onMouseDown={() => {
+          onMouseDown={(domEvt) => {
             onDragMove?.({
+              evt: { altKey: domEvt.altKey },
               target: {
                 x: (v?: number) => { if (v !== undefined) { lastSetPos.x = v; return } return gx + 10 },
                 y: (v?: number) => { if (v !== undefined) { lastSetPos.y = v; return } return gy + 10 },
@@ -115,7 +116,7 @@ vi.mock("react-konva", async (importOriginal) => {
       x: number; y: number; radius?: number; fill?: string; stroke?: string
       draggable?: boolean; name?: string
       dragBoundFunc?: DragBoundFunc
-      onDragMove?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
+      onDragMove?: (e: { evt: { altKey: boolean }; target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onDragEnd?: (e: { target: { x: (v?: number) => number | void; y: (v?: number) => number | void } }) => void
       onMouseEnter?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
       onMouseLeave?: (e: { target: { getStage: () => { container: () => HTMLElement } | null } }) => void
@@ -137,8 +138,9 @@ vi.mock("react-konva", async (importOriginal) => {
             lastClickEvent.evt = evt
             onClick?.(evt)
           }}
-          onMouseDown={() => {
+          onMouseDown={(domEvt) => {
             onDragMove?.({
+              evt: { altKey: domEvt.altKey },
               target: {
                 x: (v?: number) => {
                   if (v !== undefined) { lastSetPos.x = v; return }
@@ -536,7 +538,7 @@ describe("EyedropperLayer", () => {
     expect(swatch.getAttribute("data-draggable")).toBe("false")
   })
 
-  it("onDragMove on swatch circle calls onSwatchDragMove with (id, x, y)", () => {
+  it("onDragMove on swatch circle calls onSwatchDragMove with (id, x, y, disableSnap)", () => {
     const onSwatchDragMove = vi.fn()
     const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
     const { getAllByTestId } = render(
@@ -553,7 +555,24 @@ describe("EyedropperLayer", () => {
     // mock fires onDragMove with x+10, y+10 of the swatch position
     // swatchPos for left side: x=swatchRadius, y=300
     const r = defaultStyle.swatchRadius
-    expect(onSwatchDragMove).toHaveBeenCalledWith("p1", r + 10, 310)
+    expect(onSwatchDragMove).toHaveBeenCalledWith("p1", r + 10, 310, false)
+  })
+
+  it("passes disableSnap=true when Alt is held during a swatch drag (CAD-style)", () => {
+    const onSwatchDragMove = vi.fn()
+    const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+    const { getAllByTestId } = render(
+      <EyedropperLayer
+        points={points}
+        {...DEFAULT_PROPS}
+        interactionMode="select"
+        onSwatchDragMove={onSwatchDragMove}
+      />
+    )
+    const swatch = getAllByTestId("circle")[0]
+    fireEvent.mouseDown(swatch, { altKey: true })
+    const r = defaultStyle.swatchRadius
+    expect(onSwatchDragMove).toHaveBeenCalledWith("p1", r + 10, 310, true)
   })
 
   it("swatch onDragMove snaps the Konva node to the position returned by onSwatchDragMove (Story 5.2)", () => {

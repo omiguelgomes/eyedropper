@@ -725,7 +725,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   // CAD-style soft snapping to the clamped coords, surface alignment guides, and
   // return the snapped position so the Konva node moves there live.
   const handleSwatchDragMove = useCallback(
-    (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
+    (id: string, canvasX: number, canvasY: number, disableSnap: boolean): { x: number; y: number } => {
       const layout = canvasLayoutRef.current
       if (!layout) {
         setPoints((prev) =>
@@ -750,16 +750,21 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         .filter((pt) => pt.id !== id && (pt.swatchOrder !== null || (pt.swatchX !== null && pt.swatchY !== null)))
         .map((pt) => getSwatchPos(pt, layout.canvasWidth, layout.canvasHeight, r))
 
-      const snapped = computeSwatchSnap({
-        others,
-        marker,
-        x: canvasX,
-        y: canvasY,
-        swatchRadius: r,
-        canvasWidth: layout.canvasWidth,
-        canvasHeight: layout.canvasHeight,
-        threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
-      })
+      // Alt/Option held (CAD-style): skip alignment entirely — the swatch tracks
+      // the cursor with no guides or distribution cues. dragBoundFunc still clamps
+      // it inside the canvas, and drop still resolves overlaps in handleSwatchDragEnd.
+      const snapped = disableSnap
+        ? { x: canvasX, y: canvasY, guides: [], distribution: [] }
+        : computeSwatchSnap({
+            others,
+            marker,
+            x: canvasX,
+            y: canvasY,
+            swatchRadius: r,
+            canvasWidth: layout.canvasWidth,
+            canvasHeight: layout.canvasHeight,
+            threshold: SNAP_SCREEN_PX / (scaleRef.current || 1),
+          })
 
       // Carry the label with the swatch: shift it by the same delta the swatch
       // moved this frame, so their relative offset (and any manual nudge) is kept.

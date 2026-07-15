@@ -37,7 +37,9 @@ interface Props {
   borderTexture?: HTMLImageElement | null
   onMarkerDragMove: (id: string, canvasX: number, canvasY: number) => void
   onMarkerDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
-  onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
+  // `disableSnap` (held Alt/Option, CAD-style) suppresses alignment guides and
+  // distribution snapping for this frame — the swatch tracks the cursor freely.
+  onSwatchDragMove: (id: string, canvasX: number, canvasY: number, disableSnap: boolean) => { x: number; y: number }
   onSwatchDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onRequestRemove: (id: string, clientX: number, clientY: number) => void
   onSelectPoint: (id: string) => void
@@ -310,7 +312,8 @@ export default function EyedropperLayer({
                 onDragMove: (e: KonvaEventObject<DragEvent>) => {
                   // Story 5.2: snap the node visually to the aligned position
                   // returned by the handler (same write-back pattern as onDragEnd).
-                  const snapped = onSwatchDragMove(p.id, e.target.x(), e.target.y())
+                  // Holding Alt/Option disables snapping (CAD-style free placement).
+                  const snapped = onSwatchDragMove(p.id, e.target.x(), e.target.y(), e.evt.altKey)
                   e.target.x(snapped.x)
                   e.target.y(snapped.y)
                 },
