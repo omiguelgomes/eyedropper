@@ -208,6 +208,48 @@ export function anchorSwatchesToVisibleFrame(
   })
 }
 
+// Make every on-screen swatch behave EXACTLY like its marker under zoom: image-
+// anchored, not screen-anchored. The marker is stored in image space and drawn
+// via imageToCanvas, so zoom (imageScale) moves it with the image feature. The
+// swatch lives in canvas space, so it would otherwise stay pinned to the screen
+// while the marker slides away. Re-project each swatch through the SAME image
+// transform the marker gets: canvas→image on the OLD layout, image→canvas on the
+// NEW one. A swatch sits at a different image point than its marker, so under a
+// centre-anchored zoom it moves by a DIFFERENT amount — re-projecting each swatch
+// individually (rather than shifting all by the marker's delta) is what keeps it
+// glued to its own image point. The connector, recomputed from (swatch, marker)
+// each render, then just stretches to connect them. An edge-laid-out swatch is
+// detached to free-floating (swatchX/Y) so it stays where the image carried it.
+// The label rides along by the swatch's own delta so it stays beside it. Points
+// with no swatch on screen (never laid out, not free) are untouched. Telescopes
+// exactly across incremental slider steps IFF `before`/`after` are the layouts at
+// consecutive zooms (the handler advances its baseline synchronously to ensure
+// this). Exported for unit testing.
+export function reprojectSwatchesForZoom(
+  points: EyedropperPoint[],
+  before: CanvasLayout,
+  after: CanvasLayout,
+  swatchRadius: number,
+  canvasWidth: number,
+  canvasHeight: number
+): EyedropperPoint[] {
+  return points.map((p) => {
+    const isFree = p.swatchX !== null && p.swatchY !== null
+    if (p.swatchOrder === null && !isFree) return p
+    const swatch = getSwatchPos(p, canvasWidth, canvasHeight, swatchRadius)
+    const imagePt = canvasToImage(swatch.x, swatch.y, before)
+    const next = imageToCanvas(imagePt.x, imagePt.y, after)
+    const dx = next.x - swatch.x
+    const dy = next.y - swatch.y
+    return {
+      ...p,
+      swatchX: next.x,
+      swatchY: next.y,
+      label: { ...p.label, x: p.label.x + dx, y: p.label.y + dy },
+    }
+  })
+}
+
 // Apply a global size-scale change to every point: scale each label's fontSize
 // by next/prev, and move every laid-out label PROPORTIONALLY with its swatch. As
 // the radius grows the swatch's rendered center and outer edge shift; we keep the
@@ -1057,11 +1099,38 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     setPan({ x: 0, y: 0 })
   }, [])
 
-  // Change the zoom. The stored pan is re-clamped at render via panOffset (a
-  // looser zoom grows the slack, a tighter one may push the current pan out of
-  // bounds), so this only sets the zoom; swatches/labels/chrome are unaffected.
+  // Change the zoom. The marker is image-anchored (drawn via imageScale) and moves
+  // with the image feature; re-project every on-screen swatch+label through the
+  // SAME image transform (reprojectSwatchesForZoom) so the swatch behaves exactly
+  // like its marker — glued to its own image point, not the screen — and the
+  // connector just stretches between them. The stored pan is re-clamped at render
+  // via panOffset. Advance the zoom baseline (zoomRef) SYNCHRONOUSLY, not via the
+  // passive effect that also syncs it: a fast slider drag fires many onChange
+  // steps before effects flush, so relying on the effect would let several steps
+  // share one stale baseline and compound their re-projections from the wrong
+  // origin (residual drift). Deriving both layouts from computeLayout at prev/next
+  // makes each step's re-projection telescope — one step's "after" is the next
+  // step's "before" — so the swatch tracks its image point with no accumulation.
   const handleZoomChange = useCallback((next: number) => {
+    const prev = zoomRef.current
+    zoomRef.current = next
     setZoom(next)
+    if (prev === next) return
+    const prevLayout = computeLayout(
+      imageWidthRef.current, imageHeightRef.current, ratioRef.current, { x: 0, y: 0 }, prev
+    )
+    const nextLayout = computeLayout(
+      imageWidthRef.current, imageHeightRef.current, ratioRef.current, { x: 0, y: 0 }, next
+    )
+    if (prevLayout.canvasWidth === 0) return
+    setPoints((pts) =>
+      pts.length === 0
+        ? pts
+        : reprojectSwatchesForZoom(
+            pts, prevLayout, nextLayout, styleRef.current.swatchRadius,
+            nextLayout.canvasWidth, nextLayout.canvasHeight
+          )
+    )
   }, [])
 
   // Pan the crop by a screen-pixel delta (from the pan-tool drag). Convert to

@@ -23,8 +23,10 @@ import {
   seedNewLabels,
   rescalePointsForSize,
   anchorSwatchesToVisibleFrame,
+  reprojectSwatchesForZoom,
 } from "./index"
 import type { CanvasLayout } from "@/lib/canvas-layout"
+import { computeLayout, canvasToImage, imageToCanvas } from "@/lib/canvas-layout"
 import type { EyedropperPoint } from "@/lib/types"
 import { loadStyles } from "@/lib/styles"
 import { assignSwatchLayout } from "@/lib/swatch-layout"
@@ -317,5 +319,98 @@ describe("rescalePointsForSize", () => {
     expect(result[0].label.x).toBe(20)
     expect(result[0].label.y).toBe(300)
     expect(result[0].label.fontSize).toBeCloseTo(before[0].label.fontSize * 2)
+  })
+})
+
+describe("reprojectSwatchesForZoom", () => {
+  const baseStyle = loadStyles().find((s) => s.name === "float")! // beside, r=48
+  const r = baseStyle.swatchRadius
+  // Landscape image under a 9:16 frame so cover-crop leaves vertical slack and the
+  // image transform actually moves things under zoom.
+  const imgW = 800
+  const imgH = 600
+  const ratio = { w: 9, h: 16 }
+  const before = computeLayout(imgW, imgH, ratio, { x: 0, y: 0 }, 1)
+  const after = computeLayout(imgW, imgH, ratio, { x: 0, y: 0 }, 2)
+  const W = before.canvasWidth
+  const H = before.canvasHeight
+
+  const laidOut = () => {
+    const seed = apiPointsToEyedroppers([{ x: 300, y: 250, color: "#fff" }])
+    const assigned = assignSwatchLayout(seed, W, H, before.imageOffsetY, before.imageScale, before.imageOffsetX)
+    return seedNewLabels(seed, assigned, baseStyle, W, H)
+  }
+
+  it("moves the swatch to its OWN image point's new canvas position (image-anchored, like the marker)", () => {
+    const pts = laidOut()
+    const p = pts[0]
+    const swatch = getSwatchPos(p, W, H, r)
+    // The swatch's own image anchor, re-projected on the zoomed layout — the SAME
+    // transform the marker gets. This is what "behaves exactly like the marker" means.
+    const imagePt = canvasToImage(swatch.x, swatch.y, before)
+    const expected = imageToCanvas(imagePt.x, imagePt.y, after)
+
+    const result = reprojectSwatchesForZoom(pts, before, after, r, W, H)
+    expect(result[0].swatchX).toBeCloseTo(expected.x)
+    expect(result[0].swatchY).toBeCloseTo(expected.y)
+  })
+
+  it("moves the swatch by a DIFFERENT delta than its marker (own anchor, not marker delta)", () => {
+    const pts = laidOut()
+    const p = pts[0]
+    const swatch = getSwatchPos(p, W, H, r)
+    const swatchImg = canvasToImage(swatch.x, swatch.y, before)
+    const swatchDelta = imageToCanvas(swatchImg.x, swatchImg.y, after).y - swatch.y
+    const markerDelta = imageToCanvas(p.x, p.y, after).y - imageToCanvas(p.x, p.y, before).y
+    // The swatch sits at a different image location than the marker, so under a
+    // centre-anchored zoom the two move by different amounts. The OLD (buggy)
+    // approach shifted the swatch by the marker delta — this guards against that.
+    expect(Math.abs(swatchDelta - markerDelta)).toBeGreaterThan(1)
+    const result = reprojectSwatchesForZoom(pts, before, after, r, W, H)
+    expect(result[0].swatchY! - swatch.y).toBeCloseTo(swatchDelta)
+  })
+
+  it("carries the label by the swatch's own delta", () => {
+    const pts = laidOut()
+    const p = pts[0]
+    const swatch = getSwatchPos(p, W, H, r)
+    const swatchImg = canvasToImage(swatch.x, swatch.y, before)
+    const next = imageToCanvas(swatchImg.x, swatchImg.y, after)
+    const dx = next.x - swatch.x
+    const dy = next.y - swatch.y
+    const result = reprojectSwatchesForZoom(pts, before, after, r, W, H)
+    expect(result[0].label.x).toBeCloseTo(p.label.x + dx)
+    expect(result[0].label.y).toBeCloseTo(p.label.y + dy)
+  })
+
+  it("re-projects an already-free swatch through its own anchor too", () => {
+    const pts = laidOut().map((p) => ({ ...p, swatchX: 120, swatchY: 500 }))
+    const imagePt = canvasToImage(120, 500, before)
+    const expected = imageToCanvas(imagePt.x, imagePt.y, after)
+    const result = reprojectSwatchesForZoom(pts, before, after, r, W, H)
+    expect(result[0].swatchX).toBeCloseTo(expected.x)
+    expect(result[0].swatchY).toBeCloseTo(expected.y)
+  })
+
+  it("is a no-op for a not-laid-out point (no swatch on screen yet)", () => {
+    const pts = apiPointsToEyedroppers([{ x: 300, y: 250, color: "#fff" }]) // swatchOrder null, free null
+    const result = reprojectSwatchesForZoom(pts, before, after, r, W, H)
+    expect(result[0].swatchX).toBeNull()
+    expect(result[0].swatchY).toBeNull()
+    expect(result[0].label.x).toBe(pts[0].label.x)
+  })
+
+  it("telescopes: ten 0.1 steps land where one big jump does (no drift)", () => {
+    const layoutAt = (z: number) => computeLayout(imgW, imgH, ratio, { x: 0, y: 0 }, z)
+    const jumped = reprojectSwatchesForZoom(laidOut(), layoutAt(1), layoutAt(2), r, W, H)
+    let stepped = laidOut()
+    let z = 1
+    for (let i = 0; i < 10; i++) {
+      const nextZ = Math.round((z + 0.1) * 10) / 10
+      stepped = reprojectSwatchesForZoom(stepped, layoutAt(z), layoutAt(nextZ), r, W, H)
+      z = nextZ
+    }
+    expect(stepped[0].swatchX).toBeCloseTo(jumped[0].swatchX!, 1)
+    expect(stepped[0].swatchY).toBeCloseTo(jumped[0].swatchY!, 1)
   })
 })
