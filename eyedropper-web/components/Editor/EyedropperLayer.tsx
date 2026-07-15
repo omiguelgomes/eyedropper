@@ -443,18 +443,18 @@ export default function EyedropperLayer({
                   e.cancelBubble = true
                 }}
                 dragBoundFunc={function (pos) {
-                  // Konva passes absolute stage-pixel coords; scale the canvas
-                  // bounds by the stage scale. No radius inset — the handle may sit
-                  // anywhere on the canvas (over image or letterbox). The Layer is
-                  // translated by (panX, panY), so the band shifts by pan·scale.
+                  // Konva passes ABSOLUTE stage-pixel coords. The VISIBLE frame is
+                  // fixed on screen at [0, dim·s] — independent of pan — so the
+                  // handle can always reach the current visible edge. No radius inset
+                  // (it may sit over image or letterbox). The Layer's (panX, panY)
+                  // translate positions the node visually; the clamp must NOT re-add
+                  // pan or the handle would stop at the pre-pan edge.
                   const s = this.getStage()?.scaleX() ?? 1
                   const w = canvasWidth * s
                   const h = canvasHeight * s
-                  const px = panX * s
-                  const py = panY * s
                   return {
-                    x: Math.max(px, Math.min(w + px, pos.x)),
-                    y: Math.max(py, Math.min(h + py, pos.y)),
+                    x: Math.max(0, Math.min(w, pos.x)),
+                    y: Math.max(0, Math.min(h, pos.y)),
                   }
                 }}
                 onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {

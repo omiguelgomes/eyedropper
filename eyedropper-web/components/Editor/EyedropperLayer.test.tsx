@@ -1024,6 +1024,31 @@ describe("EyedropperLayer", () => {
       expect(bound.call(node, { x: 9999, y: 9999 })).toEqual({ x: w, y: h })
       expect(bound.call(node, { x: -50, y: -50 })).toEqual({ x: 0, y: 0 })
     })
+
+    it("handle dragBoundFunc clamps to the VISIBLE frame regardless of pan", () => {
+      // dragBoundFunc returns ABSOLUTE stage coords; the visible frame is fixed on
+      // screen at [0, dim·s]. Panning the image must NOT shift the band, or the
+      // handle stops at the pre-pan edge instead of the current visible one.
+      const scale = 0.5
+      const w = DEFAULT_PROPS.canvasWidth * scale
+      const h = DEFAULT_PROPS.canvasHeight * scale
+      const node: FakeNode = { getStage: () => ({ scaleX: () => scale }) }
+      const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+      lastDragBoundFunc.fn = null
+      render(
+        <EyedropperLayer
+          points={points}
+          {...DEFAULT_PROPS}
+          interactionMode="select"
+          selectedPointId="p1"
+          panX={40}
+          panY={-30}
+        />
+      )
+      const bound = lastDragBoundFunc.fn!
+      expect(bound.call(node, { x: 9999, y: 9999 })).toEqual({ x: w, y: h })
+      expect(bound.call(node, { x: -50, y: -50 })).toEqual({ x: 0, y: 0 })
+    })
   })
 
   describe("pastel textured swatch (Story 3.5)", () => {
