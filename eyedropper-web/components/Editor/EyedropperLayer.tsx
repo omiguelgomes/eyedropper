@@ -429,11 +429,17 @@ export default function EyedropperLayer({
                 name="connector-handle"
                 x={connector.handle.x}
                 y={connector.handle.y}
-                radius={6}
+                // Size the handle off the (display-scaled) connector width so it
+                // tracks the line's on-screen thickness instead of shrinking to a
+                // dot on large images: the ring stroke matches the line, the disc is
+                // ~3× that, and the hit area stays generously grabbable. Using
+                // style.connectorWidth (already divided by stageScale upstream) keeps
+                // all three constant on screen regardless of image size.
+                radius={style.connectorWidth * 3}
                 fill="#c4956a99"
                 stroke="#c4956a"
-                strokeWidth={1.5}
-                hitStrokeWidth={16}
+                strokeWidth={style.connectorWidth}
+                hitStrokeWidth={style.connectorWidth * 8}
                 draggable
                 // Stop the click (which Konva also fires after a drag on release)
                 // from bubbling to the Stage's select-mode onClick, which would
