@@ -10,6 +10,11 @@ interface Props {
   canvasWidth: number
   canvasHeight: number
   scale: number
+  // Pan offset (canvas units) — the Konva scene is translated by this, so the HTML
+  // input overlay shifts by pan × scale screen px to stay atop the panned labels.
+  // Drag math stays in pan-free canvas space (the input reads label.x/y directly).
+  panX?: number
+  panY?: number
   onUpdateLabelText: (id: string, text: string) => void
   onUpdateLabelPos: (id: string, x: number, y: number) => void
   onSelectPoint: (id: string) => void
@@ -35,6 +40,8 @@ export default function LabelEditOverlay({
   canvasWidth,
   canvasHeight,
   scale,
+  panX = 0,
+  panY = 0,
   onUpdateLabelText,
   onUpdateLabelPos,
   onSelectPoint,
@@ -76,8 +83,8 @@ export default function LabelEditOverlay({
             key={p.id}
             style={{
               position: "absolute",
-              left: p.label.x * scale,
-              top: p.label.y * scale,
+              left: (p.label.x + panX) * scale,
+              top: (p.label.y + panY) * scale,
               pointerEvents: "auto",
             }}
           >

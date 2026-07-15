@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, fireEvent } from "@testing-library/react"
 import Canvas from "./Canvas"
-import type { CanvasLayout } from "@/lib/canvas-to-916"
+import type { CanvasLayout } from "@/lib/canvas-layout"
 import { loadStyles } from "@/lib/styles"
 
 // Stand-in for the Konva stage container, so cursor changes are inspectable.
@@ -68,6 +68,8 @@ vi.mock("./LabelEditOverlay", () => ({
 const defaultLayout: CanvasLayout = {
   canvasWidth: 800,
   canvasHeight: 1422,
+  imageScale: 1,
+  imageOffsetX: 0,
   imageOffsetY: 411,
 }
 
@@ -92,6 +94,8 @@ function makeProps(overrides?: Partial<Parameters<typeof Canvas>[0]>) {
     distribution: [],
     pencilTexture: null,
     borderTexture: null,
+    pan: { x: 0, y: 0 },
+    onPanBy: vi.fn(),
     onMarkerDragMove: vi.fn(),
     onMarkerDragEnd: vi.fn(() => ({ x: 0, y: 0 })),
     onSwatchDragMove: vi.fn(() => ({ x: 0, y: 0 })),
@@ -139,6 +143,19 @@ describe("Canvas", () => {
     expect(img.getAttribute("data-y")).toBe("411") // imageOffsetY
     expect(img.getAttribute("data-width")).toBe("800") // canvasWidth
     expect(img.getAttribute("data-height")).toBe("600") // natural imageHeight
+  })
+
+  it("translates the image by the pan offset (rigid scene translation)", () => {
+    // Pan is applied as a view translation on top of the pan-free layout offsets,
+    // so the image node sits at (imageOffsetX + panX, imageOffsetY + panY). The
+    // annotation layers get the same translate (verified via EyedropperLayer's
+    // panX/panY props elsewhere), so the whole trio moves rigidly.
+    const { getByTestId } = render(
+      <Canvas {...makeProps({ pan: { x: 30, y: -20 } })} />
+    )
+    const img = getByTestId("konva-image")
+    expect(img.getAttribute("data-x")).toBe("30") // 0 + panX
+    expect(img.getAttribute("data-y")).toBe("391") // 411 + panY
   })
 
   it("in add mode the Stage has an onClick that calls onAddPoint with the relative pointer position (AC2)", () => {

@@ -43,7 +43,7 @@ describe("loadStyles", () => {
 
   it("the flat style retains its known fields unchanged", () => {
     expect(byName("float")).toMatchObject({
-      swatchRadius: 48,
+      swatchRadius: 32,
       connectorType: "curved",
       markerStyle: "ring",
       labelPosition: "beside",

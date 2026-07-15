@@ -63,4 +63,45 @@ describe("sampleColor", () => {
     const { ctx } = makeCtx(solidPixels(255, 255, 255))
     expect(sampleColor(ctx, 50, 50)).toBe("#ffffff")
   })
+
+  it("defaults to the original 8×8 box when no size is given", () => {
+    const { ctx, calls } = makeCtx(solidPixels(1, 2, 3))
+    sampleColor(ctx, 50, 50)
+    expect(calls).toEqual([{ x: 46, y: 46, w: 8, h: 8 }])
+  })
+
+  it("size controls the sampled box edge: size=16 → 16×16 region", () => {
+    const { ctx, calls } = makeCtx(solidPixels(1, 2, 3, 256), 100, 100)
+    const result = sampleColor(ctx, 50, 50, 16)
+    // 16×16 = 256 pixels averaged; still the solid color.
+    expect(result).toBe("#010203")
+    expect(calls).toEqual([{ x: 42, y: 42, w: 16, h: 16 }])
+  })
+
+  it("size=1 reads a true single pixel", () => {
+    const { ctx, calls } = makeCtx(solidPixels(9, 8, 7, 1), 100, 100)
+    const result = sampleColor(ctx, 50, 50, 1)
+    expect(result).toBe("#090807")
+    expect(calls).toEqual([{ x: 50, y: 50, w: 1, h: 1 }])
+  })
+
+  it("averages a larger patch: size=16 over a half-red/half-black region", () => {
+    // 16×16 = 256 pixels; first half red (255,0,0), second half black.
+    const data = new Uint8ClampedArray(256 * 4)
+    for (let i = 0; i < 128; i++) {
+      data[i * 4] = 255
+      data[i * 4 + 3] = 255
+    }
+    const { ctx } = makeCtx(data, 100, 100)
+    // Mean red = 255 * 128/256 = 127.5 → round 128 = 0x80.
+    expect(sampleColor(ctx, 50, 50, 16)).toBe("#800000")
+  })
+
+  it("clamps the box to the canvas so a large size never reads off-canvas", () => {
+    // size 20 on a 10×10 canvas clamps the edge to 10 → 10×10 read at (0,0).
+    const { ctx, calls } = makeCtx(solidPixels(5, 6, 7, 100), 10, 10)
+    const result = sampleColor(ctx, 5, 5, 20)
+    expect(result).toBe("#050607")
+    expect(calls).toEqual([{ x: 0, y: 0, w: 10, h: 10 }])
+  })
 })

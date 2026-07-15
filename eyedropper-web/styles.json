@@ -1,7 +1,7 @@
 [
   {
     "name": "pastel",
-    "swatchRadius": 48,
+    "swatchRadius": 32,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
     "connectorType": "curved",
@@ -14,7 +14,7 @@
   },
   {
     "name": "pastel ring",
-    "swatchRadius": 48,
+    "swatchRadius": 32,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
     "connectorType": "curved",
@@ -28,7 +28,7 @@
   },
   {
     "name": "pastel bold",
-    "swatchRadius": 48,
+    "swatchRadius": 32,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
     "connectorType": "curved",
@@ -42,7 +42,7 @@
   },
   {
     "name": "float",
-    "swatchRadius": 48,
+    "swatchRadius": 32,
     "swatchBorderColor": "#ffffff",
     "swatchBorderWidth": 3,
     "connectorType": "curved",

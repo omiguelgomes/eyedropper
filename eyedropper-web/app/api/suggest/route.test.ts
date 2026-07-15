@@ -39,7 +39,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 describe("POST /api/suggest", () => {
   beforeEach(() => {
-    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-image"))
+    mockGetUploadBuffer.mockResolvedValue({ buffer: Buffer.from("fake-image"), contentType: "image/jpeg" })
     mockSharpMeta.mockResolvedValue({ width: 800, height: 600 })
     // Raw pixel buffer at the downscaled size; content is irrelevant since
     // suggestPoints is mocked. info dimensions drive the coordinate scale-back.

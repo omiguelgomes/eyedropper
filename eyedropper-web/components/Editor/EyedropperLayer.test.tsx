@@ -31,7 +31,9 @@ vi.mock("react-konva", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-konva")>()
   return {
     ...actual,
-    Layer: ({ children }: { children?: React.ReactNode }) => <div data-testid="layer">{children}</div>,
+    Layer: ({ children, x, y }: { children?: React.ReactNode; x?: number; y?: number }) => (
+      <div data-testid="layer" data-x={x ?? 0} data-y={y ?? 0}>{children}</div>
+    ),
     // The textured swatch (pastel) is a Group carrying the drag/select/remove
     // handlers. Mirror the Circle mock's event wiring so those handlers can be
     // asserted; the outer per-point wrapper Group has no handlers and just
@@ -239,6 +241,24 @@ describe("EyedropperLayer", () => {
     const { getByTestId, queryAllByTestId } = render(<EyedropperLayer points={[]} {...DEFAULT_PROPS} />)
     expect(getByTestId("layer")).toBeDefined()
     expect(queryAllByTestId("circle")).toHaveLength(0)
+  })
+
+  it("translates the whole Layer by panX/panY so the trio moves rigidly on pan", () => {
+    const points = [makePoint("p1", 100, 200, "#ff0000")]
+    const { getByTestId } = render(
+      <EyedropperLayer points={points} {...DEFAULT_PROPS} panX={25} panY={-15} />
+    )
+    const layer = getByTestId("layer")
+    expect(layer.getAttribute("data-x")).toBe("25")
+    expect(layer.getAttribute("data-y")).toBe("-15")
+  })
+
+  it("defaults the Layer pan translate to 0 when panX/panY are omitted", () => {
+    const points = [makePoint("p1", 100, 200, "#ff0000")]
+    const { getByTestId } = render(<EyedropperLayer points={points} {...DEFAULT_PROPS} />)
+    const layer = getByTestId("layer")
+    expect(layer.getAttribute("data-x")).toBe("0")
+    expect(layer.getAttribute("data-y")).toBe("0")
   })
 
   it("renders two circles per point (ring + swatch)", () => {
@@ -619,6 +639,30 @@ describe("EyedropperLayer", () => {
     expect(inside).toEqual({ x: 100, y: 120 })
   })
 
+  it("swatch dragBoundFunc shifts its absolute-space clamp band by pan·scale", () => {
+    // With the Layer translated by (panX, panY) canvas units, the pan-free clamp
+    // band [r, dim−r] maps into absolute space shifted by pan·scale, so the swatch
+    // stays clamped to the (panned) image, not the frame.
+    const r = defaultStyle.swatchRadius
+    const scale = 0.5
+    const panX = 40
+    const panY = -30
+    const w = DEFAULT_PROPS.canvasWidth * scale
+    const h = DEFAULT_PROPS.canvasHeight * scale
+    const node: FakeNode = { getStage: () => ({ scaleX: () => scale }) }
+    const points = [makePoint("p1", 100, 200, "#ff0000", "left", 300)]
+    render(
+      <EyedropperLayer points={points} {...DEFAULT_PROPS} interactionMode="select" panX={panX} panY={panY} />
+    )
+    const bound = lastDragBoundFunc.fn!
+    const overflow = bound.call(node, { x: 99999, y: 99999 })
+    expect(overflow.x).toBeCloseTo(w - r * scale + panX * scale)
+    expect(overflow.y).toBeCloseTo(h - r * scale + panY * scale)
+    const underflow = bound.call(node, { x: -99999, y: -99999 })
+    expect(underflow.x).toBeCloseTo(r * scale + panX * scale)
+    expect(underflow.y).toBeCloseTo(r * scale + panY * scale)
+  })
+
   it("getSwatchPos returns (swatchX, swatchY) when both set, edge position when null (Story 5.1)", () => {
     const r = defaultStyle.swatchRadius
     const W = 1080
@@ -742,6 +786,30 @@ describe("EyedropperLayer", () => {
     for (const circle of getAllByTestId("circle")) {
       expect(circle.getAttribute("data-has-click")).toBe("true")
     }
+  })
+
+  describe("precision cue ring", () => {
+    it("draws no extra ring when precisionRadius is omitted", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000")]
+      const { getAllByTestId } = render(<EyedropperLayer points={points} {...DEFAULT_PROPS} />)
+      // swatch + marker only.
+      expect(getAllByTestId("circle")).toHaveLength(2)
+    })
+
+    it("draws a dashed ring at the marker sized to precisionRadius when set", () => {
+      const points = [makePoint("p1", 100, 200, "#ff0000")]
+      const { getAllByTestId } = render(
+        <EyedropperLayer points={points} {...DEFAULT_PROPS} precisionRadius={37} />
+      )
+      const circles = getAllByTestId("circle")
+      // swatch + precision ring + marker.
+      expect(circles).toHaveLength(3)
+      const ring = circles.find((c) => c.getAttribute("data-radius") === "37")
+      expect(ring).toBeDefined()
+      // Centered on the marker (p.x, p.y + imageOffsetY).
+      expect(ring!.getAttribute("data-x")).toBe("100")
+      expect(ring!.getAttribute("data-y")).toBe(String(200 + DEFAULT_PROPS.imageOffsetY))
+    })
   })
 
   describe("connector bend handle (Story 5.4)", () => {

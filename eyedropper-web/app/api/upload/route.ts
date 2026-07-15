@@ -1,47 +1,48 @@
-import { NextRequest, NextResponse } from "next/server"
-import sharp from "sharp"
-import crypto from "crypto"
-import { putUpload } from "@/lib/blob-store"
+import { NextResponse } from "next/server"
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 
-// Cap the upload so a large or concurrent request cannot buffer an unbounded
-// body into memory before Sharp ever sees it.
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+// Vercel functions cap request bodies at ~4.5MB, so a full-res photo POSTed here
+// would be rejected with a 413 before the handler ran. Instead the browser
+// uploads the file directly to Vercel Blob; this route only mints the
+// short-lived client token (handleUpload), enforcing the type/size limits and
+// pathname it is allowed to write. See lib/blob-store.ts for storage details.
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
-export async function POST(request: NextRequest) {
-  const contentLength = Number(request.headers.get("content-length"))
-  if (contentLength > MAX_UPLOAD_BYTES) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413 })
-  }
+// Client uploads to `uploads/<uuid>` (no extension — the content type is stored
+// on the blob). Reject any other pathname so a token can't be minted for an
+// arbitrary write.
+const ALLOWED_PATHNAME = /^uploads\/[0-9a-f-]{36}$/
 
-  const formData = await request.formData()
-  const file = formData.get("file")
+// Minting client tokens requires the static read-write token; OIDC alone
+// cannot. Vercel provisions BLOB_READ_WRITE_TOKEN automatically when a Blob
+// store is connected to the project, in every environment.
+const token = process.env.BLOB_READ_WRITE_TOKEN
 
-  if (!file || typeof (file as File).arrayBuffer !== "function") {
-    return NextResponse.json({ error: "No file provided" }, { status: 400 })
-  }
-
-  const id = crypto.randomUUID()
+export async function POST(request: Request): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody
 
   try {
-    const buffer = Buffer.from(await (file as File).arrayBuffer())
-    const image = sharp(buffer)
-    const metadata = await image.metadata()
-
-    if (metadata.width == null || metadata.height == null) {
-      return NextResponse.json({ error: "Could not read image dimensions" }, { status: 400 })
-    }
-
-    // Store in Vercel Blob (shared across serverless instances) rather than
-    // /tmp, which is per-instance and unreachable from other invocations.
-    const jpeg = await image.jpeg({ quality: 95 }).toBuffer()
-    await putUpload(id, jpeg)
-
-    return NextResponse.json({
-      id,
-      width: metadata.width,
-      height: metadata.height,
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      token,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!ALLOWED_PATHNAME.test(pathname)) {
+          throw new Error("Invalid upload path")
+        }
+        return {
+          allowedContentTypes: ["image/jpeg", "image/png"],
+          maximumSizeInBytes: MAX_UPLOAD_BYTES,
+          addRandomSuffix: false,
+        }
+      },
     })
-  } catch {
-    return NextResponse.json({ error: "Invalid or corrupt image" }, { status: 400 })
+
+    return NextResponse.json(jsonResponse)
+  } catch (error) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 400 }
+    )
   }
 }

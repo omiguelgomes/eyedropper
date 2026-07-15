@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import type Konva from "konva"
-import { canvasTo916 } from "@/lib/canvas-to-916"
-import type { CanvasLayout } from "@/lib/canvas-to-916"
+import { computeLayout, clampPan, canvasToImage, imageToCanvas, isPointInFrame } from "@/lib/canvas-layout"
+import type { CanvasLayout } from "@/lib/canvas-layout"
+import { DEFAULT_RATIO, ratioLabel, type Ratio } from "@/lib/aspect"
 import type { EyedropperPoint } from "@/lib/types"
 import { sampleColor } from "@/lib/color-sample"
 import { assignSwatchLayout, resolveSwatchOverlap, computeSwatchSnap } from "@/lib/swatch-layout"
@@ -12,6 +13,7 @@ import { clampToImage } from "@/lib/drag-utils"
 import { triggerDownload } from "@/lib/download"
 import { loadStyles } from "@/lib/styles"
 import type { Style } from "@/lib/styles"
+import { scaleStyleForDisplay } from "@/lib/style-scale"
 import { getSwatchPos } from "./EyedropperLayer"
 import { getLabelPosition } from "@/lib/label-layout"
 import { measureLabelWidth } from "@/lib/measure-text"
@@ -21,6 +23,7 @@ import ContextMenu from "./ContextMenu"
 import PointPanel from "./PointPanel"
 import LabelPanel from "./LabelPanel"
 import StylePicker from "@/components/StylePicker"
+import AspectPicker from "@/components/AspectPicker"
 import ExportButton from "@/components/ExportButton"
 
 function detectBorderColor(img: HTMLImageElement): string {
@@ -68,21 +71,23 @@ const SNAP_SCREEN_PX = 8
 // all other label fields (text/visibility/position) stay scoped to one point.
 const LABEL_BROADCAST_KEYS: readonly string[] = ["fontFamily", "fontSize", "color"]
 
-// Convert a canvas-space click into an in-band image-space point, or null if the
-// click landed in the 9:16 letterbox padding (outside the drawn image). Exported
-// for unit testing the AC2 band-guard without standing up the whole EditorShell.
+// Convert a canvas-space click into an image-space point, or null if the click
+// landed outside the drawn image (only possible when the frame is not fully
+// covered, e.g. a degenerate layout). Under cover-crop the image usually fills
+// the whole frame, so in-frame clicks map into the image. Exported for unit
+// testing the band-guard without standing up the whole EditorShell.
 export function canvasClickToImagePoint(
   canvasX: number,
   canvasY: number,
   layout: CanvasLayout,
+  imageWidth: number,
   imageHeight: number
 ): { x: number; y: number } | null {
-  const imageX = canvasX
-  const imageY = canvasY - layout.imageOffsetY
-  if (imageX < 0 || imageX > layout.canvasWidth || imageY < 0 || imageY > imageHeight) {
+  const { x: imageX, y: imageY } = canvasToImage(canvasX, canvasY, layout)
+  if (imageX < 0 || imageX > imageWidth || imageY < 0 || imageY > imageHeight) {
     return null
   }
-  return clampToImage(imageX, imageY, layout.canvasWidth, imageHeight)
+  return clampToImage(imageX, imageY, imageWidth, imageHeight)
 }
 
 // Base label font size at 1× scale. New points seed at BASE_FONT_SIZE ×
@@ -172,6 +177,37 @@ export function seedNewLabels(
   })
 }
 
+// Pin each edge-laid-out swatch (and its label) to the CURRENTLY-VISIBLE frame
+// edge when suggesting under an active pan. The annotation scene is rendered
+// translated by `+pan`, and edge swatches are placed at pan-free edges, so a
+// re-suggest while panned would render them shoved off-screen by the pan (the
+// "suggested swatches fly outside the frame" bug). Detaching each edge swatch to
+// its free position edgePos − pan makes the +pan render land it exactly on the
+// visible edge — identical to a pan-0 suggest — and, being free-floating, it then
+// travels with the image on further pans (the chosen "glued to image" behavior).
+// The label is carried by the same −pan delta so it stays beside its swatch.
+// No-op at pan (0,0) — the common unpanned suggest path is untouched. Only edge
+// swatches (swatchOrder set, not already free) are anchored. Exported for unit tests.
+export function anchorSwatchesToVisibleFrame(
+  points: EyedropperPoint[],
+  canvasWidth: number,
+  canvasHeight: number,
+  swatchRadius: number,
+  pan: { x: number; y: number }
+): EyedropperPoint[] {
+  if (pan.x === 0 && pan.y === 0) return points
+  return points.map((p) => {
+    if (p.swatchOrder === null || p.swatchX !== null || p.swatchY !== null) return p
+    const edge = getSwatchPos(p, canvasWidth, canvasHeight, swatchRadius)
+    return {
+      ...p,
+      swatchX: edge.x - pan.x,
+      swatchY: edge.y - pan.y,
+      label: { ...p.label, x: p.label.x - pan.x, y: p.label.y - pan.y },
+    }
+  })
+}
+
 // Apply a global size-scale change to every point: scale each label's fontSize
 // by next/prev, and move every laid-out label PROPORTIONALLY with its swatch. As
 // the radius grows the swatch's rendered center and outer edge shift; we keep the
@@ -209,8 +245,64 @@ export function rescalePointsForSize(
 export default function EditorShell({ imageId, claudeAvailable }: EditorShellProps) {
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
-  const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null)
+  const [imageWidth, setImageWidth] = useState<number>(0)
   const [imageHeight, setImageHeight] = useState<number>(0)
+  // Live aspect ratio and pan (crop offset in canvas space). Changing the ratio
+  // resets the pan; the pan tool nudges pan within the covered area. canvasLayout
+  // is derived from these plus the image dimensions.
+  const [ratio, setRatio] = useState<Ratio>(DEFAULT_RATIO)
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  // Extra magnification (1×–4×) applied on top of the cover-crop so the artist can
+  // frame a tighter crop before working. Feeds computeLayout/clampPan; markers
+  // follow the zoom (they're drawn via imageScale), swatches/labels/chrome don't.
+  // Part of the exported image (it changes what the frame shows).
+  const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(zoom)
+  useEffect(() => {
+    zoomRef.current = zoom
+  }, [zoom])
+  // The layout is PAN-FREE (centered cover-crop): pan is applied separately as a
+  // uniform view translation over the whole annotation scene (image + markers +
+  // connectors + swatches + labels), so the entire trio moves RIGIDLY together
+  // during a pan — nothing stretches. Keeping pan out of the layout means every
+  // stored coord and all the swatch/snap/label math stays in one pan-free canvas
+  // space; only render-time offsets and the two absolute-space clamps see pan.
+  // PAN-FREE layout (see below): pass zoom but leave pan at its default zero, so
+  // zoom changes the cover scale / crop while pan stays a separate view translate.
+  const canvasLayout = useMemo<CanvasLayout | null>(
+    () =>
+      imageWidth > 0 && imageHeight > 0
+        ? computeLayout(imageWidth, imageHeight, ratio, { x: 0, y: 0 }, zoom)
+        : null,
+    [imageWidth, imageHeight, ratio, zoom]
+  )
+  // Pan clamped to the covered area for the current ratio (canvas units). Applied
+  // as a Konva/DOM translate downstream. Recomputed when pan or ratio changes.
+  const panOffset = useMemo(
+    () =>
+      imageWidth > 0 && imageHeight > 0
+        ? clampPan(imageWidth, imageHeight, ratio, pan, zoom)
+        : { x: 0, y: 0 },
+    [imageWidth, imageHeight, ratio, pan, zoom]
+  )
+  // Mirror ratio/pan in refs so the pan-tool drag handlers (deps []) can read the
+  // live values and clamp against the current ratio without re-creating.
+  const ratioRef = useRef(ratio)
+  const panRef = useRef(pan)
+  useEffect(() => {
+    ratioRef.current = ratio
+  }, [ratio])
+  useEffect(() => {
+    panRef.current = pan
+  }, [pan])
+  // Clamped pan (canvas units) mirrored for the stable handlers (deps []): the
+  // add-point click maps a stage-relative pointer back to pan-free canvas space by
+  // subtracting this, and the swatch/handle dragBoundFuncs offset their absolute-
+  // space clamp by it (both convert screen ↔ pan-free canvas coords).
+  const panOffsetRef = useRef(panOffset)
+  useEffect(() => {
+    panOffsetRef.current = panOffset
+  }, [panOffset])
   const [bgColor, setBgColor] = useState<string>("#fafaf9")
   const [loadError, setLoadError] = useState(false)
   const [displaySize, setDisplaySize] = useState<{ width: number; height: number } | null>(null)
@@ -224,9 +316,22 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   // Mirror canvasLayout in a ref so runSuggest can read the latest layout
   // without depending on it (which would re-fire the auto-suggest effect).
   const canvasLayoutRef = useRef<CanvasLayout | null>(null)
+  const imageWidthRef = useRef<number>(0)
   const imageHeightRef = useRef<number>(0)
   const styles = useMemo(() => loadStyles(), [])
   const [style, setStyle] = useState<Style>(() => styles[0])
+  // On-screen scale (display px per canvas px). Chrome sizes (swatch, connector,
+  // marker, label font) are authored as ON-SCREEN pixel references and divided by
+  // this so they render at a CONSTANT on-screen size regardless of aspect ratio,
+  // crop, or image resolution — a wider/cropped ratio (or a bigger window) fits
+  // the canvas to a larger display box, growing stageScale, which would otherwise
+  // magnify every canvas-unit-sized element. Falls back to 1 until displaySize is
+  // known. canvasWidth === imageWidth for every ratio, so this varies only with
+  // the viewport fit, never the ratio's canvas dimensions.
+  const stageScale =
+    displaySize && canvasLayout && canvasLayout.canvasWidth > 0
+      ? displaySize.width / canvasLayout.canvasWidth
+      : 1
   // Mirror the UNSCALED base style so handleSizeScaleChange (deps []) can derive
   // the swatch radius at the new scale when re-anchoring labels.
   const baseStyleRef = useRef<Style>(style)
@@ -241,21 +346,53 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   useEffect(() => {
     sizeScaleRef.current = sizeScale
   }, [sizeScale])
-  // The style actually rendered: base style with its size dimensions multiplied
-  // by sizeScale. Texture paths, colors, and layout mode carry through the
-  // spread unchanged. Everything downstream (layers, drag handlers, layout) uses
-  // this — the raw `style` is only for StylePicker's active-name highlight.
+  // Color-sampling precision: the EDGE length (in IMAGE natural pixels) of the
+  // square box sampleColor averages when picking a point's color. 8 = the original
+  // 8×8 box; 1 reads a true single pixel; higher values average a larger patch,
+  // smoothing over local texture/noise. Mirrored in a ref so the stable drag/add
+  // handlers (deps []) read the live value without re-creating. A change re-samples
+  // every existing point's color via the effect below.
+  const [sampleSize, setSampleSize] = useState(8)
+  const sampleSizeRef = useRef(sampleSize)
+  useEffect(() => {
+    sampleSizeRef.current = sampleSize
+  }, [sampleSize])
+  // Re-sample every existing point's color when precision changes — a larger box
+  // averages a different area, so the picked colors should visibly shift with the
+  // slider. Guarded on the hidden sampling ctx; points store x,y in image space,
+  // so this reads straight from the original pixels (never mutated).
+  useEffect(() => {
+    const ctx = hiddenCanvasCtxRef.current
+    if (!ctx) return
+    setPoints((prev) =>
+      prev.map((p) => ({ ...p, color: sampleColor(ctx, p.x, p.y, sampleSize) }))
+    )
+  }, [sampleSize])
+  // True while the Precision slider is focused/being dragged; gates the on-canvas
+  // dashed cue so it only appears while the artist is adjusting precision and
+  // never bleeds into the export.
+  const [precisionActive, setPrecisionActive] = useState(false)
+  // The effective multiplier for all annotation CHROME (swatch, connector, marker,
+  // label font). The style's dimensions are authored as on-screen pixel references
+  // at 1×; dividing by stageScale cancels the viewport-fit magnification so chrome
+  // renders at a CONSTANT on-screen size regardless of aspect ratio, crop, image
+  // resolution, or window size (the "everything looks huge when cropped" fix). The
+  // user-facing size slider (sizeScale, 1–2.5×) then multiplies that constant. A
+  // change to annotationScale — from the slider OR a stageScale change (ratio /
+  // resize) — is treated uniformly by the label rescale effect below.
+  const annotationScale = sizeScale / stageScale
+  const annotationScaleRef = useRef(annotationScale)
+  useEffect(() => {
+    annotationScaleRef.current = annotationScale
+  }, [annotationScale])
+  // The style actually rendered: base style with its chrome dimensions scaled for
+  // display (constant on-screen size — see scaleStyleForDisplay). Texture paths,
+  // colors, and layout mode carry through unchanged. Everything downstream
+  // (layers, drag handlers, layout) uses this — the raw `style` is only for
+  // StylePicker's active-name highlight.
   const scaledStyle = useMemo<Style>(
-    () => ({
-      ...style,
-      swatchRadius: style.swatchRadius * sizeScale,
-      // Connector grows faster than the swatch: only the GROWTH above 1× is
-      // amplified (×1.5), so at rest (1×) the line stays at the style's designed
-      // width rather than jumping to 1.5× it.
-      connectorWidth: style.connectorWidth * (1 + (sizeScale - 1) * 1.5),
-      swatchBorderWidth: style.swatchBorderWidth * sizeScale,
-    }),
-    [style, sizeScale]
+    () => scaleStyleForDisplay(style, sizeScale, stageScale),
+    [style, sizeScale, stageScale]
   )
   const styleRef = useRef<Style>(scaledStyle)
   // Keep styleRef synced with the live SCALED style — the swatch drag handlers
@@ -301,7 +438,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
   // The decoded ring for the ACTIVE style (null for the ring-less "pastel").
   const borderTexture = style.borderTexture ? borderTextures[style.borderTexture] ?? null : null
 
-  const [interactionMode, setInteractionMode] = useState<"select" | "add">("select")
+  const [interactionMode, setInteractionMode] = useState<"select" | "add" | "pan">("select")
   const [contextMenu, setContextMenu] = useState<{ pointId: string; x: number; y: number } | null>(null)
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
   const [labelEditMode, setLabelEditMode] = useState(false)
@@ -317,6 +454,12 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     pointsRef.current = points
   }, [points])
 
+  // Keep canvasLayoutRef synced with the derived layout so the stable drag
+  // handlers (deps []) always read the current transform (ratio/pan aware).
+  useEffect(() => {
+    canvasLayoutRef.current = canvasLayout
+  }, [canvasLayout])
+
   // Keep scaleRef synced with the live on-screen scale (= displaySize.width /
   // canvasWidth, the same value Canvas computes). The swatch snap threshold is
   // derived from this so it feels constant on screen regardless of image res.
@@ -325,6 +468,28 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       scaleRef.current = displaySize.width / canvasLayout.canvasWidth
     }
   }, [displaySize, canvasLayout])
+
+  // Keep label on-screen font size CONSTANT across stageScale changes (aspect
+  // ratio switch or window resize). fontSize is stored in canvas units, so
+  // on-screen font = fontSize × stageScale; when stageScale changes we rescale
+  // fontSize by the inverse so the rendered size is unchanged — the label-font
+  // counterpart to scaledStyle normalizing swatch/marker/connector. Font-only, no
+  // reposition: existing labels already keep their canvas position on a ratio
+  // change (only NEW labels are seeded by the frame effect), so this preserves
+  // that. lastStageScaleRef holds the value the current fontSizes are relative to.
+  const lastStageScaleRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!(stageScale > 0)) return
+    const prevSS = lastStageScaleRef.current
+    lastStageScaleRef.current = stageScale
+    if (prevSS === null || prevSS === stageScale) return
+    const ratio = prevSS / stageScale
+    setPoints((pts) =>
+      pts.length === 0
+        ? pts
+        : pts.map((p) => ({ ...p, label: { ...p.label, fontSize: p.label.fontSize * ratio } }))
+    )
+  }, [stageScale])
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 1024)
@@ -346,15 +511,23 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     }
   }, [])
 
+  // Fit the on-screen canvas within the viewport for the CURRENT ratio: cap the
+  // width by both the available horizontal space (minus the two sidebars) and by
+  // what keeps the full height on screen (innerHeight × ratioW/ratioH). Recomputed
+  // on resize and whenever the ratio changes so a wide ratio fits instead of
+  // overflowing the viewport height.
   useEffect(() => {
     const compute = () => {
-      const w = Math.max(1, Math.min(window.innerWidth - 480, window.innerHeight * (9 / 16)))
-      setDisplaySize({ width: Math.round(w), height: Math.round(w * 16 / 9) })
+      const w = Math.max(
+        1,
+        Math.min(window.innerWidth - 480, window.innerHeight * (ratio.w / ratio.h))
+      )
+      setDisplaySize({ width: Math.round(w), height: Math.round(w * ratio.h / ratio.w) })
     }
     compute()
     window.addEventListener("resize", compute)
     return () => window.removeEventListener("resize", compute)
-  }, [])
+  }, [ratio])
 
   // Load the uploaded image once here; the decoded element is passed down to
   // <Canvas> so it is never fetched or decoded twice.
@@ -362,10 +535,9 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     const image = new window.Image()
     image.crossOrigin = "anonymous"
     image.onload = () => {
-      const layout = canvasTo916(image.naturalWidth, image.naturalHeight)
-      canvasLayoutRef.current = layout
-      setCanvasLayout(layout)
+      imageWidthRef.current = image.naturalWidth
       imageHeightRef.current = image.naturalHeight
+      setImageWidth(image.naturalWidth)
       setImageHeight(image.naturalHeight)
       setBgColor(detectBorderColor(image))
       // Populate hidden canvas for pixel sampling — never shown to user
@@ -400,16 +572,25 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       })
       const data = res.ok ? await res.json() : null
       if (data && Array.isArray(data.points)) {
-        const seedFont = BASE_FONT_SIZE * sizeScaleRef.current
+        const seedFont = BASE_FONT_SIZE * annotationScaleRef.current
         let newPoints: EyedropperPoint[] =
           method === "slic"
             ? apiPointsToEyedroppers(data.points, seedFont)
             : claudePointsToEyedroppers(data.points, seedFont)
 
+        // Keep only points on the currently-visible crop — under a cover fit +
+        // zoom/pan, the API can return points on image regions cropped outside the
+        // frame. Filter at suggest-time; later crop changes don't re-filter.
+        const filterLayout = canvasLayoutRef.current
+        if (filterLayout) {
+          const pan = panOffsetRef.current
+          newPoints = newPoints.filter((p) => isPointInFrame(p.x, p.y, filterLayout, pan))
+        }
+
         if (hiddenCanvasCtxRef.current) {
           newPoints = newPoints.map((p) => ({
             ...p,
-            color: sampleColor(hiddenCanvasCtxRef.current!, p.x, p.y),
+            color: sampleColor(hiddenCanvasCtxRef.current!, p.x, p.y, sampleSizeRef.current),
           }))
         }
 
@@ -419,10 +600,20 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             newPoints,
             layout.canvasWidth,
             layout.canvasHeight,
-            layout.imageOffsetY
+            layout.imageOffsetY,
+            layout.imageScale,
+            layout.imageOffsetX
           )
           newPoints = seedNewLabels(
             newPoints, laidOut, styleRef.current, layout.canvasWidth, layout.canvasHeight
+          )
+          // Under an active pan, edge swatches are placed at pan-free edges and
+          // would render shoved off-screen by the +pan translate. Pin them to the
+          // currently-visible edge (edgePos − pan) so a re-suggest while panned
+          // looks like an unpanned one; they then move with the image on further pans.
+          newPoints = anchorSwatchesToVisibleFrame(
+            newPoints, layout.canvasWidth, layout.canvasHeight,
+            styleRef.current.swatchRadius, panOffsetRef.current
           )
         }
 
@@ -442,10 +633,11 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     (id: string, canvasX: number, canvasY: number) => {
       const layout = canvasLayoutRef.current
       if (!hiddenCanvasCtxRef.current || !layout) return
+      const img = canvasToImage(canvasX, canvasY, layout)
       const { x: clampedX, y: clampedY } = clampToImage(
-        canvasX, canvasY - layout.imageOffsetY, layout.canvasWidth, imageHeightRef.current
+        img.x, img.y, imageWidthRef.current, imageHeightRef.current
       )
-      const newColor = sampleColor(hiddenCanvasCtxRef.current, clampedX, clampedY)
+      const newColor = sampleColor(hiddenCanvasCtxRef.current, clampedX, clampedY, sampleSizeRef.current)
       setPoints((prev) =>
         prev.map((p) => (p.id === id ? { ...p, x: clampedX, y: clampedY, color: newColor } : p))
       )
@@ -457,13 +649,12 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     (id: string, canvasX: number, canvasY: number): { x: number; y: number } => {
       const layout = canvasLayoutRef.current
       if (!layout) return { x: canvasX, y: canvasY }
-      const imageX = canvasX
-      const imageY = canvasY - layout.imageOffsetY
+      const img = canvasToImage(canvasX, canvasY, layout)
       const { x: clampedX, y: clampedY } = clampToImage(
-        imageX, imageY, layout.canvasWidth, imageHeightRef.current
+        img.x, img.y, imageWidthRef.current, imageHeightRef.current
       )
       const newColor = hiddenCanvasCtxRef.current
-        ? sampleColor(hiddenCanvasCtxRef.current, clampedX, clampedY)
+        ? sampleColor(hiddenCanvasCtxRef.current, clampedX, clampedY, sampleSizeRef.current)
         : null
 
       // Only the dragged point's position/color changes — do NOT re-run
@@ -481,7 +672,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
 
       // Return the clamped position in canvas space so the Konva node snaps to
       // the final location, not the stale pre-drag coords.
-      return { x: clampedX, y: clampedY + layout.imageOffsetY }
+      return imageToCanvas(clampedX, clampedY, layout)
     },
     []
   )
@@ -504,7 +695,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
       const current = pointsRef.current
       const dragged = current.find((p) => p.id === id)
       const marker = dragged
-        ? { x: dragged.x, y: dragged.y + layout.imageOffsetY }
+        ? imageToCanvas(dragged.x, dragged.y, layout)
         : { x: canvasX, y: canvasY }
       // The swatch's rendered center BEFORE this move (edge pos on the first frame,
       // then its live free coords) — the label follows the swatch by this delta.
@@ -617,15 +808,21 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     const ctx = hiddenCanvasCtxRef.current
     if (!layout || !ctx) return
 
-    // Canvas → image space; ignore clicks in the 9:16 letterbox padding.
-    const point = canvasClickToImagePoint(canvasX, canvasY, layout, imageHeightRef.current)
+    // The annotation scene is rendered translated by panOffset, so a stage-relative
+    // click maps back to PAN-FREE canvas space by subtracting it before the canvas→
+    // image conversion (which the pan-free layout expects). Ignore clicks that fall
+    // outside the drawn image.
+    const pan = panOffsetRef.current
+    const point = canvasClickToImagePoint(
+      canvasX - pan.x, canvasY - pan.y, layout, imageWidthRef.current, imageHeightRef.current
+    )
     if (!point) return
 
     const { x, y } = point
-    const color = sampleColor(ctx, x, y)
+    const color = sampleColor(ctx, x, y, sampleSizeRef.current)
     const [newPoint] = apiPointsToEyedroppers(
       [{ x, y, color }],
-      BASE_FONT_SIZE * sizeScaleRef.current
+      BASE_FONT_SIZE * annotationScaleRef.current
     )
 
     setPoints((prev) => {
@@ -634,7 +831,9 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         withNew,
         layout.canvasWidth,
         layout.canvasHeight,
-        layout.imageOffsetY
+        layout.imageOffsetY,
+        layout.imageScale,
+        layout.imageOffsetX
       )
       return seedNewLabels(
         withNew, laidOut, styleRef.current, layout.canvasWidth, layout.canvasHeight
@@ -655,7 +854,9 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         remaining,
         layout.canvasWidth,
         layout.canvasHeight,
-        layout.imageOffsetY
+        layout.imageOffsetY,
+        layout.imageScale,
+        layout.imageOffsetX
       )
     })
     setSelectedPointId((cur) => (cur === id ? null : cur))
@@ -764,7 +965,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
         width: measureLabelWidth(p.label.text, p.label.fontSize, p.label.fontFamily),
         height: p.label.fontSize,
       }))
-    const marker = { x: dragged.x, y: dragged.y + layout.imageOffsetY }
+    const marker = imageToCanvas(dragged.x, dragged.y, layout)
     return computeLabelSnap({
       box: { x, y, width, height },
       others,
@@ -848,6 +1049,34 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     setStyle(next)
   }, [])
 
+  // Change the aspect ratio. Resets pan to centered — the crop math for the new
+  // ratio is different, so a stale pan would jump. Swatches re-distribute via the
+  // frame-dimension effect above; points (image space) never move.
+  const handleSelectRatio = useCallback((next: Ratio) => {
+    setRatio(next)
+    setPan({ x: 0, y: 0 })
+  }, [])
+
+  // Change the zoom. The stored pan is re-clamped at render via panOffset (a
+  // looser zoom grows the slack, a tighter one may push the current pan out of
+  // bounds), so this only sets the zoom; swatches/labels/chrome are unaffected.
+  const handleZoomChange = useCallback((next: number) => {
+    setZoom(next)
+  }, [])
+
+  // Pan the crop by a screen-pixel delta (from the pan-tool drag). Convert to
+  // canvas units via the live on-screen scale, add to the current pan, and clamp
+  // against the current ratio so the image always still covers the frame. Reads
+  // everything from refs so the callback stays stable (deps []).
+  const handlePanBy = useCallback((screenDX: number, screenDY: number) => {
+    const s = scaleRef.current || 1
+    const next = {
+      x: panRef.current.x + screenDX / s,
+      y: panRef.current.y + screenDY / s,
+    }
+    setPan(clampPan(imageWidthRef.current, imageHeightRef.current, ratioRef.current, next, zoomRef.current))
+  }, [])
+
   // Move the global size slider. Geometry (swatch/connector/marker) scales
   // automatically via scaledStyle, but each label's fontSize is per-point, so
   // rescale them all by the ratio newScale/prevScale — and re-anchor every
@@ -861,9 +1090,15 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     if (next === prev) return
     setSizeScale(next)
     const layout = canvasLayoutRef.current
+    // Rescale labels in ANNOTATION-scale terms (sizeScale/stageScale): the font
+    // ratio is unchanged (next/prev), but the swatch radii rescalePointsForSize
+    // uses to re-anchor labels must match the RENDERED radii (base × sizeScale ÷
+    // stageScale), or the label offset would be computed against the wrong swatch
+    // center. scaleRef.current is the live stageScale (synced below).
+    const ss = scaleRef.current || 1
     setPoints((pts) =>
       layout
-        ? rescalePointsForSize(pts, baseStyleRef.current, prev, next, layout.canvasWidth, layout.canvasHeight)
+        ? rescalePointsForSize(pts, baseStyleRef.current, prev / ss, next / ss, layout.canvasWidth, layout.canvasHeight)
         : pts.map((p) => ({ ...p, label: { ...p.label, fontSize: p.label.fontSize * (next / prev) } }))
     )
   }, [])
@@ -891,26 +1126,39 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
     runSuggest("slic")
   }, [runSuggest])
 
-  // Re-apply swatch layout when the canvas layout becomes available (or
-  // changes) after points were already fetched without a layout. This avoids
-  // re-fetching SLIC just to lay out existing points. Points already laid out
-  // for the current layout are returned unchanged by assignSwatchLayout, so
-  // this does not loop.
+  // Re-apply swatch layout when the FRAME dimensions change: on first load (layout
+  // null → available) so points fetched before layout get placed, and on every
+  // ratio change so swatches redistribute to the new edges. Keyed on canvasWidth/
+  // canvasHeight (not the whole layout) so a pan-only change — which shifts the
+  // image offsets but not the frame — does NOT reshuffle swatches; the image just
+  // slides beneath them. Reads the full transform from the ref (synced above).
+  const frameW = canvasLayout?.canvasWidth ?? 0
+  const frameH = canvasLayout?.canvasHeight ?? 0
   useEffect(() => {
-    if (!canvasLayout) return
+    const layout = canvasLayoutRef.current
+    if (!layout) return
     setPoints((prev) => {
       if (prev.length === 0) return prev
       const laidOut = assignSwatchLayout(
         prev,
-        canvasLayout.canvasWidth,
-        canvasLayout.canvasHeight,
-        canvasLayout.imageOffsetY
+        layout.canvasWidth,
+        layout.canvasHeight,
+        layout.imageOffsetY,
+        layout.imageScale,
+        layout.imageOffsetX
       )
       return seedNewLabels(
-        prev, laidOut, styleRef.current, canvasLayout.canvasWidth, canvasLayout.canvasHeight
+        prev, laidOut, styleRef.current, layout.canvasWidth, layout.canvasHeight
       )
     })
-  }, [canvasLayout])
+  }, [frameW, frameH])
+
+  // The precision cue's radius in CANVAS units: sampleSize is the sampled box's
+  // EDGE in IMAGE pixels, so its half-width is sampleSize/2; the marker is drawn
+  // scaled by imageScale, so multiply to match the sampled footprint on screen.
+  // 0 (→ no ring) unless the slider is active.
+  const precisionRadius =
+    precisionActive && canvasLayout ? (sampleSize / 2) * canvasLayout.imageScale : 0
 
   const selectedPoint = selectedPointId ? points.find((p) => p.id === selectedPointId) : undefined
   const selectedNumber = selectedPoint ? points.findIndex((p) => p.id === selectedPoint.id) + 1 : 0
@@ -984,6 +1232,45 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           >
             ○ Add point
           </button>
+          <button
+            onClick={() => setInteractionMode("pan")}
+            className={`w-full text-left text-xs px-2 py-1.5 rounded border mt-1 transition-colors ${
+              interactionMode === "pan"
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                : "border-[var(--color-border)] bg-white hover:border-[var(--color-accent)]"
+            }`}
+          >
+            ✋ Pan image
+          </button>
+        </section>
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
+            Aspect
+          </h3>
+          <AspectPicker ratio={ratio} onSelect={handleSelectRatio} />
+        </section>
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
+            Zoom
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* Zooms the image within the frame for a tighter crop (companion to
+                the Pan tool). Part of the export. Markers follow the image; use
+                the Pan tool to reposition the crop after zooming in. */}
+            <input
+              type="range"
+              aria-label="Zoom"
+              min={1}
+              max={4}
+              step={0.1}
+              value={zoom}
+              onChange={(e) => handleZoomChange(Number(e.target.value))}
+              className="flex-1"
+            />
+            <span className="text-xs text-[var(--color-text-primary)] font-mono w-10 text-right">
+              {zoom.toFixed(1)}×
+            </span>
+          </div>
         </section>
         <section>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
@@ -1008,6 +1295,31 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             />
             <span className="text-xs text-[var(--color-text-primary)] font-mono w-10 text-right">
               {sizeScale.toFixed(1)}×
+            </span>
+          </div>
+        </section>
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-2">
+            Precision
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* Sample-area size: the slider value is the box EDGE in image pixels
+                (sampleColor's `size`) — 1 = a true single pixel — shown directly in
+                the label. */}
+            <input
+              type="range"
+              aria-label="Sample area"
+              min={1}
+              max={40}
+              step={1}
+              value={sampleSize}
+              onChange={(e) => setSampleSize(Number(e.target.value))}
+              onFocus={() => setPrecisionActive(true)}
+              onBlur={() => setPrecisionActive(false)}
+              className="flex-1"
+            />
+            <span className="text-xs text-[var(--color-text-primary)] font-mono w-10 text-right">
+              {sampleSize}px
             </span>
           </div>
         </section>
@@ -1049,13 +1361,16 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
             displayHeight={displaySize.height}
             points={points}
             style={scaledStyle}
-            sizeScale={sizeScale}
+            sizeScale={annotationScale}
             interactionMode={interactionMode}
             pencilTexture={pencilTexture}
             borderTexture={borderTexture}
             labelEditMode={labelEditMode}
             snapGuides={snapGuides}
             distribution={distribution}
+            pan={panOffset}
+            precisionRadius={precisionRadius}
+            onPanBy={handlePanBy}
             onMarkerDragMove={handleMarkerDragMove}
             onMarkerDragEnd={handleMarkerDragEnd}
             onSwatchDragMove={handleSwatchDragMove}
@@ -1098,7 +1413,7 @@ export default function EditorShell({ imageId, claudeAvailable }: EditorShellPro
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] mb-3">
             Export
           </h3>
-          <ExportButton onExport={handleExport} />
+          <ExportButton onExport={handleExport} ratioLabel={ratioLabel(ratio)} />
         </section>
       </aside>
 

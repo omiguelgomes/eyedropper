@@ -6,6 +6,10 @@ import type { DistributionGuide } from "@/lib/swatch-layout"
 interface Props {
   distribution: DistributionGuide[]
   scale: number
+  // Pan offset (canvas units) applied as a Layer translate so the gap arrows stay
+  // registered with the panned swatch centers. Default 0.
+  panX?: number
+  panY?: number
 }
 
 // Screen-px offset of the gap arrows to one side of the alignment line, so the
@@ -32,7 +36,7 @@ const POINTER_WIDTH_PX = 8
 // horizontal row (gaps run horizontally, arrows offset in +y from shared Y).
 // strokeWidth / offset / pointer sizes are divided by `scale` so they're constant
 // on-screen despite the downscaled stage (mirrors SnapGuideLayer).
-export default function DistributionGuideLayer({ distribution, scale }: Props) {
+export default function DistributionGuideLayer({ distribution, scale, panX = 0, panY = 0 }: Props) {
   const guides = distribution.filter((d) => d.marks.length >= 2)
   if (guides.length === 0) return null
   const w = STROKE_PX / scale
@@ -59,7 +63,7 @@ export default function DistributionGuideLayer({ distribution, scale }: Props) {
   }
 
   return (
-    <Layer listening={false}>
+    <Layer listening={false} x={panX} y={panY}>
       {arrows.map((points, i) => (
         <Arrow
           key={i}

@@ -4,16 +4,21 @@ import userEvent from "@testing-library/user-event"
 import ExportButton from "./ExportButton"
 
 describe("ExportButton", () => {
-  it("renders an enabled button labelled 'Download 9:16 JPEG' by default (AC5)", () => {
-    render(<ExportButton onExport={vi.fn().mockResolvedValue(undefined)} />)
+  it("renders an enabled button labelled with the ratio by default (AC5)", () => {
+    render(<ExportButton onExport={vi.fn().mockResolvedValue(undefined)} ratioLabel="9:16" />)
     const button = screen.getByRole("button", { name: "Download 9:16 JPEG" })
     expect(button).toBeEnabled()
+  })
+
+  it("reflects a different ratio label in the button text", () => {
+    render(<ExportButton onExport={vi.fn().mockResolvedValue(undefined)} ratioLabel="3:2" />)
+    expect(screen.getByRole("button", { name: "Download 3:2 JPEG" })).toBeEnabled()
   })
 
   it("calls onExport when clicked", async () => {
     const onExport = vi.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
-    render(<ExportButton onExport={onExport} />)
+    render(<ExportButton onExport={onExport} ratioLabel="9:16" />)
     await user.click(screen.getByRole("button"))
     expect(onExport).toHaveBeenCalledTimes(1)
   })
@@ -24,7 +29,7 @@ describe("ExportButton", () => {
       () => new Promise<void>((r) => { resolveExport = r })
     )
     const user = userEvent.setup()
-    render(<ExportButton onExport={onExport} />)
+    render(<ExportButton onExport={onExport} ratioLabel="9:16" />)
 
     await user.click(screen.getByRole("button"))
 
@@ -42,7 +47,7 @@ describe("ExportButton", () => {
   it("re-enables the button even if onExport rejects (AC6)", async () => {
     const onExport = vi.fn().mockRejectedValue(new Error("export failed"))
     const user = userEvent.setup()
-    render(<ExportButton onExport={onExport} />)
+    render(<ExportButton onExport={onExport} ratioLabel="9:16" />)
 
     await user.click(screen.getByRole("button"))
 

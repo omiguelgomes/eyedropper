@@ -1,16 +1,25 @@
-import { put, get, list, del, type PutBlobResult } from "@vercel/blob"
+import { get, list, del } from "@vercel/blob"
 
 // Uploaded images are stored in Vercel Blob rather than /tmp so every serverless
 // invocation can reach them. /tmp is per-instance on Vercel, so image/suggest
 // requests routed to a different Lambda than the upload saw an empty disk (the
 // intermittent "image may have expired" failure). Blob is shared across all
-// invocations. Objects are keyed `uploads/<uuid>.jpg` with private access.
+// invocations. Objects are keyed `uploads/<uuid>` with private access.
 //
-// Auth: on Vercel (production/preview) OIDC is used automatically
+// Uploads go straight from the browser to Blob via a client upload (see
+// app/api/upload/route.ts) rather than being POSTed through a function, so the
+// original bytes (JPEG or PNG) are stored as-is — Vercel functions cap request
+// bodies at ~4.5MB, which a full-res photo blows past. The pathname has no
+// extension because the content type is now variable; it is stored on the blob
+// and read back via `get`.
+//
+// Auth: on Vercel (production/preview) OIDC is used automatically for reads
 // (VERCEL_OIDC_TOKEN + BLOB_STORE_ID, injected by the platform). Locally OIDC
 // is not issued for the "development" environment, so a BLOB_READ_WRITE_TOKEN
 // in .env.local is passed explicitly — an explicit token wins over OIDC, and
-// when the env var is absent (prod) the SDK falls back to OIDC.
+// when the env var is absent (prod) the SDK falls back to OIDC. Note the token
+// route (handleUpload) requires BLOB_READ_WRITE_TOKEN in every environment,
+// including prod, because OIDC cannot mint client upload tokens.
 
 const PREFIX = "uploads/"
 
@@ -18,30 +27,21 @@ const PREFIX = "uploads/"
 const token = process.env.BLOB_READ_WRITE_TOKEN
 
 function blobPath(id: string): string {
-  return `${PREFIX}${id}.jpg`
+  return `${PREFIX}${id}`
 }
 
-// Store the re-encoded JPEG. `addRandomSuffix: false` keeps the pathname
-// deterministic so it can be re-derived from the id alone (no URL to persist).
-export function putUpload(id: string, buffer: Buffer): Promise<PutBlobResult> {
-  return put(blobPath(id), buffer, {
-    access: "private",
-    contentType: "image/jpeg",
-    addRandomSuffix: false,
-    // The id is a fresh uuid per upload, so a re-put can only be an overwrite of
-    // the same logical upload; allow it rather than 409ing.
-    allowOverwrite: true,
-    token,
-  })
-}
-
-// Fetch the stored JPEG bytes for server-side use (Sharp decode, Claude upload,
-// same-origin proxy). Returns null when the object is absent (expired/cleaned up
-// or never uploaded).
-export async function getUploadBuffer(id: string): Promise<Buffer | null> {
+// Fetch the stored image bytes and content type for server-side use (Sharp
+// decode, Claude upload, same-origin proxy). Returns null when the object is
+// absent (expired/cleaned up or never uploaded).
+export async function getUploadBuffer(
+  id: string
+): Promise<{ buffer: Buffer; contentType: string } | null> {
   const result = await get(blobPath(id), { access: "private", token })
   if (!result || result.statusCode !== 200) return null
-  return Buffer.from(await new Response(result.stream).arrayBuffer())
+  return {
+    buffer: Buffer.from(await new Response(result.stream).arrayBuffer()),
+    contentType: result.blob.contentType,
+  }
 }
 
 // Delete every upload blob older than maxAgeMs (by Blob's uploadedAt). Returns

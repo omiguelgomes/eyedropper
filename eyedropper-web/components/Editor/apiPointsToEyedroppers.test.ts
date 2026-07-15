@@ -22,8 +22,9 @@ import {
   canvasClickToImagePoint,
   seedNewLabels,
   rescalePointsForSize,
+  anchorSwatchesToVisibleFrame,
 } from "./index"
-import type { CanvasLayout } from "@/lib/canvas-to-916"
+import type { CanvasLayout } from "@/lib/canvas-layout"
 import type { EyedropperPoint } from "@/lib/types"
 import { loadStyles } from "@/lib/styles"
 import { assignSwatchLayout } from "@/lib/swatch-layout"
@@ -68,31 +69,52 @@ describe("apiPointsToEyedroppers", () => {
   })
 })
 
-describe("canvasClickToImagePoint (AC2 band-guard)", () => {
-  // Portrait image padded into a 9:16 canvas: image band is canvasY ∈ [100, 700].
-  const layout: CanvasLayout = { canvasWidth: 400, canvasHeight: 800, imageOffsetY: 100 }
+describe("canvasClickToImagePoint (band-guard)", () => {
+  // Legacy-style layout: full-width image (imageScale 1, imageOffsetX 0) padded
+  // vertically into a taller canvas so the image band is canvasY ∈ [100, 700].
+  const layout: CanvasLayout = {
+    canvasWidth: 400,
+    canvasHeight: 800,
+    imageScale: 1,
+    imageOffsetX: 0,
+    imageOffsetY: 100,
+  }
+  const imageWidth = 400
   const imageHeight = 600
 
-  it("converts an in-band click to image space (subtracting imageOffsetY)", () => {
-    expect(canvasClickToImagePoint(200, 400, layout, imageHeight)).toEqual({ x: 200, y: 300 })
+  it("converts an in-band click to image space (inverse transform)", () => {
+    expect(canvasClickToImagePoint(200, 400, layout, imageWidth, imageHeight)).toEqual({ x: 200, y: 300 })
   })
 
-  it("rejects a click in the top letterbox padding (above the image)", () => {
-    expect(canvasClickToImagePoint(200, 50, layout, imageHeight)).toBeNull()
+  it("rejects a click above the drawn image", () => {
+    expect(canvasClickToImagePoint(200, 50, layout, imageWidth, imageHeight)).toBeNull()
   })
 
-  it("rejects a click in the bottom letterbox padding (below the image)", () => {
+  it("rejects a click below the drawn image", () => {
     // canvasY 750 → imageY 650, beyond imageHeight 600
-    expect(canvasClickToImagePoint(200, 750, layout, imageHeight)).toBeNull()
+    expect(canvasClickToImagePoint(200, 750, layout, imageWidth, imageHeight)).toBeNull()
   })
 
   it("rejects a click past the right edge", () => {
-    expect(canvasClickToImagePoint(401, 400, layout, imageHeight)).toBeNull()
+    expect(canvasClickToImagePoint(401, 400, layout, imageWidth, imageHeight)).toBeNull()
   })
 
   it("accepts clicks exactly on the band boundaries (inclusive)", () => {
-    expect(canvasClickToImagePoint(0, 100, layout, imageHeight)).toEqual({ x: 0, y: 0 })
-    expect(canvasClickToImagePoint(400, 700, layout, imageHeight)).toEqual({ x: 400, y: 600 })
+    expect(canvasClickToImagePoint(0, 100, layout, imageWidth, imageHeight)).toEqual({ x: 0, y: 0 })
+    expect(canvasClickToImagePoint(400, 700, layout, imageWidth, imageHeight)).toEqual({ x: 400, y: 600 })
+  })
+
+  it("inverts a scaled+offset (cover-crop) transform", () => {
+    // Image scaled 2× and shifted: canvas (cx,cy) → image ((cx-offX)/2, (cy-offY)/2).
+    const cover: CanvasLayout = {
+      canvasWidth: 400,
+      canvasHeight: 800,
+      imageScale: 2,
+      imageOffsetX: -50,
+      imageOffsetY: -30,
+    }
+    // canvas (150, 170) → image ((150+50)/2, (170+30)/2) = (100, 100)
+    expect(canvasClickToImagePoint(150, 170, cover, 300, 300)).toEqual({ x: 100, y: 100 })
   })
 })
 
@@ -188,6 +210,59 @@ describe("seedNewLabels", () => {
     const result = seedNewLabels(before, before, style, W, H)
     expect(result[0].label.x).toBe(20)
     expect(result[0].label.y).toBe(300)
+  })
+})
+
+describe("anchorSwatchesToVisibleFrame", () => {
+  const style = loadStyles().find((s) => s.name === "float")! // r=48
+  const W = 800
+  const H = 1422
+  const offsetY = 100
+  const laidOut = (x: number, y: number) => {
+    const before = apiPointsToEyedroppers([{ x, y, color: "#fff" }])
+    return assignSwatchLayout(before, W, H, offsetY)
+  }
+
+  it("is a no-op at pan (0,0): edge swatches keep their edge layout", () => {
+    const pts = laidOut(20, 300) // left-edge swatch
+    const result = anchorSwatchesToVisibleFrame(pts, W, H, style.swatchRadius, { x: 0, y: 0 })
+    // Unchanged: still edge-anchored (free coords null), same swatchOrder.
+    expect(result[0].swatchX).toBeNull()
+    expect(result[0].swatchY).toBeNull()
+    expect(result[0].swatchOrder).toBe(pts[0].swatchOrder)
+  })
+
+  it("detaches each edge swatch to edgePos − pan so the +pan render lands it on the VISIBLE edge", () => {
+    const pts = laidOut(20, 300) // left-edge swatch at x = swatchRadius
+    expect(pts[0].swatchSide).toBe("left")
+    const edge = getSwatchPos(pts[0], W, H, style.swatchRadius) // { x: r, y: order }
+    const pan = { x: 120, y: -40 }
+    const result = anchorSwatchesToVisibleFrame(pts, W, H, style.swatchRadius, pan)
+    const p = result[0]
+    // Now free-floating at the pan-compensated position.
+    expect(p.swatchX).toBeCloseTo(edge.x - pan.x)
+    expect(p.swatchY).toBeCloseTo(edge.y - pan.y)
+    // Rendered (swatch + pan) sits exactly on the original visible edge.
+    expect(p.swatchX! + pan.x).toBeCloseTo(edge.x)
+    expect(p.swatchY! + pan.y).toBeCloseTo(edge.y)
+  })
+
+  it("shifts each label by the same −pan delta so it stays beside its swatch", () => {
+    const before = apiPointsToEyedroppers([{ x: 20, y: 300, color: "#fff" }])
+    const laid = assignSwatchLayout(before, W, H, offsetY)
+    const seeded = seedNewLabels(before, laid, style, W, H)
+    const beforeLabel = { ...seeded[0].label }
+    const pan = { x: 120, y: -40 }
+    const result = anchorSwatchesToVisibleFrame(seeded, W, H, style.swatchRadius, pan)
+    expect(result[0].label.x).toBeCloseTo(beforeLabel.x - pan.x)
+    expect(result[0].label.y).toBeCloseTo(beforeLabel.y - pan.y)
+  })
+
+  it("leaves an already-free swatch untouched (only edge swatches are anchored)", () => {
+    const pts = laidOut(20, 300).map((p) => ({ ...p, swatchX: 500, swatchY: 600 }))
+    const result = anchorSwatchesToVisibleFrame(pts, W, H, style.swatchRadius, { x: 120, y: -40 })
+    expect(result[0].swatchX).toBe(500)
+    expect(result[0].swatchY).toBe(600)
   })
 })
 

@@ -4,9 +4,12 @@ import { useState } from "react"
 
 interface ExportButtonProps {
   onExport: () => Promise<void>
+  // Short label for the current aspect ratio (e.g. "9:16", "3:2"), shown in the
+  // button text so it reflects whatever ratio will be exported.
+  ratioLabel: string
 }
 
-export default function ExportButton({ onExport }: ExportButtonProps) {
+export default function ExportButton({ onExport, ratioLabel }: ExportButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
 
   const handleClick = async () => {
@@ -30,7 +33,7 @@ export default function ExportButton({ onExport }: ExportButtonProps) {
         isExporting ? "opacity-60 cursor-wait" : ""
       }`}
     >
-      {isExporting ? "Exporting…" : "Download 9:16 JPEG"}
+      {isExporting ? "Exporting…" : `Download ${ratioLabel} JPEG`}
     </button>
   )
 }

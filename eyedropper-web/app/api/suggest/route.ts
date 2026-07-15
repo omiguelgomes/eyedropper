@@ -42,12 +42,14 @@ export async function POST(request: NextRequest) {
     }
 
     let buffer: Buffer
+    let mediaType: string
     let imageWidth: number
     let imageHeight: number
     try {
       const stored = await getUploadBuffer(id)
       if (!stored) throw new Error("Upload not found")
-      buffer = stored
+      buffer = stored.buffer
+      mediaType = stored.contentType
       const meta = await sharp(buffer).metadata()
       imageWidth = meta.width!
       imageHeight = meta.height!
@@ -67,7 +69,7 @@ export async function POST(request: NextRequest) {
               type: "image",
               source: {
                 type: "base64",
-                media_type: "image/jpeg",
+                media_type: mediaType as "image/jpeg" | "image/png",
                 data: buffer.toString("base64"),
               },
             },
@@ -110,11 +112,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const buffer = await getUploadBuffer(id)
-    if (!buffer) {
+    const stored = await getUploadBuffer(id)
+    if (!stored) {
       console.error("SLIC failed: upload not found for", id)
       return NextResponse.json({ error: "SLIC failed" }, { status: 500 })
     }
+    const buffer = stored.buffer
     const meta = await sharp(buffer).metadata()
     const origW = meta.width!
     const origH = meta.height!

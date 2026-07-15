@@ -1,2 +1,5 @@
 .vercel
 .env*
+
+# JetBrains IDE
+.idea/

@@ -10,15 +10,19 @@ interface Props {
   style: Style
   canvasWidth: number
   canvasHeight: number
+  // Pan offset (canvas units) applied as a Layer translate so labels move rigidly
+  // with their swatches/markers during a pan. Default 0 (existing callers/tests).
+  panX?: number
+  panY?: number
 }
 
 // Static Konva text labels shown in DISPLAY mode, and also kept mounted in edit
 // mode as the live preview under the transparent LabelEditOverlay. Position comes
 // from the stored label.x/label.y (the source of truth — seeded on edit-mode
 // entry and updated by dragging), so labels stay where the artist dragged them.
-export default function LabelLayer({ points, style }: Props) {
+export default function LabelLayer({ points, style, panX = 0, panY = 0 }: Props) {
   return (
-    <Layer>
+    <Layer x={panX} y={panY}>
       {points.map((p) => {
         if (p.swatchOrder === null) return null
         if (!p.label.visible) return null

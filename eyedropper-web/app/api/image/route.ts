@@ -9,13 +9,13 @@ export async function GET(request: NextRequest) {
   // Proxy the bytes same-origin rather than redirecting to the blob URL: the
   // client draws this onto a canvas for pixel color sampling, and a cross-origin
   // image would taint the canvas and break getImageData.
-  const buffer = await getUploadBuffer(id)
-  if (!buffer) {
+  const upload = await getUploadBuffer(id)
+  if (!upload) {
     return new NextResponse("Not found", { status: 404 })
   }
-  return new NextResponse(new Uint8Array(buffer), {
+  return new NextResponse(new Uint8Array(upload.buffer), {
     headers: {
-      "Content-Type": "image/jpeg",
+      "Content-Type": upload.contentType,
       "Cache-Control": "max-age=3600",
     },
   })

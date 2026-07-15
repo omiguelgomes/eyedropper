@@ -66,7 +66,14 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__wait_for",
       "Bash(BLOB_READ_WRITE_TOKEN=dummy rtk npm run build)",
       "Bash(vercel blob *)",
-      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__press_key"
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__press_key",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages",
+      "Bash(pkill -f \"next dev\")",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__resize_page",
+      "Bash(/usr/bin/find . -path ./node_modules -prune -o -name \"*.test.*\" -print)",
+      "Bash(/usr/bin/xargs /usr/bin/grep -l \"upload\")",
+      "Bash(/usr/bin/find . -path ./node_modules -prune -o -name \"blob-store*\" -print)"
     ]
   }
 }

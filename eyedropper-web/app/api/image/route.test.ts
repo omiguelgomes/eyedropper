@@ -43,17 +43,17 @@ describe("GET /api/image", () => {
     expect(res.status).toBe(404)
   })
 
-  it("returns 200 with image/jpeg content-type when the upload exists", async () => {
-    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-jpeg-data"))
+  it("serves the stored content-type when the upload exists", async () => {
+    mockGetUploadBuffer.mockResolvedValue({ buffer: Buffer.from("fake-png-data"), contentType: "image/png" })
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
     expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Type")).toBe("image/jpeg")
+    expect(res.headers.get("Content-Type")).toBe("image/png")
   })
 
   it("returns Cache-Control header on success", async () => {
-    mockGetUploadBuffer.mockResolvedValue(Buffer.from("fake-jpeg-data"))
+    mockGetUploadBuffer.mockResolvedValue({ buffer: Buffer.from("fake-jpeg-data"), contentType: "image/jpeg" })
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))
@@ -62,7 +62,7 @@ describe("GET /api/image", () => {
 
   it("returns the blob bytes as the body", async () => {
     const fakeBuffer = Buffer.from("fake-jpeg-data")
-    mockGetUploadBuffer.mockResolvedValue(fakeBuffer)
+    mockGetUploadBuffer.mockResolvedValue({ buffer: fakeBuffer, contentType: "image/jpeg" })
     const { GET } = await import("./route")
     const validId = "550e8400-e29b-41d4-a716-446655440000"
     const res = await GET(makeReq(validId))

@@ -3,11 +3,13 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import Upload from "./Upload"
 import { MAX_SIZE } from "@/lib/upload-utils"
 
-const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }))
+const { mockPush, mockUpload } = vi.hoisted(() => ({ mockPush: vi.fn(), mockUpload: vi.fn() }))
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }))
+
+vi.mock("@vercel/blob/client", () => ({ upload: mockUpload }))
 
 function makeFile(name: string, type: string, size = 100): File {
   const buf = new ArrayBuffer(size)
@@ -23,7 +25,9 @@ describe("Upload component", () => {
   beforeEach(() => {
     Object.defineProperty(window, "innerWidth", { value: 1280, writable: true, configurable: true })
     mockPush.mockClear()
+    mockUpload.mockReset()
     vi.unstubAllGlobals()
+    vi.stubGlobal("crypto", { randomUUID: () => "abc-123" })
   })
 
   it("shows mobile message when window.innerWidth < 1024", async () => {
@@ -98,9 +102,8 @@ describe("Upload component", () => {
     expect(screen.getByRole("button", { name: /continue/i })).toBeInTheDocument()
   })
 
-  it("POSTs to /api/upload and navigates to /editor on success", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "abc-123" }) })
-    vi.stubGlobal("fetch", fetchMock)
+  it("uploads to Blob and navigates to /editor on success", async () => {
+    mockUpload.mockResolvedValue({ url: "https://blob/uploads/abc-123" })
 
     render(<Upload />)
     await waitFor(() => screen.getByText("Drop image here"))
@@ -110,25 +113,15 @@ describe("Upload component", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }))
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/editor?id=abc-123"))
-    expect(fetchMock).toHaveBeenCalledWith("/api/upload", expect.objectContaining({ method: "POST" }))
+    expect(mockUpload).toHaveBeenCalledWith(
+      "uploads/abc-123",
+      expect.any(File),
+      expect.objectContaining({ access: "private", handleUploadUrl: "/api/upload", contentType: "image/jpeg" })
+    )
   })
 
-  it("shows an error and does not navigate when the API responds not-ok", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }))
-
-    render(<Upload />)
-    await waitFor(() => screen.getByText("Drop image here"))
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
-    uploadFile(input, makeFile("photo.jpg", "image/jpeg", 1024))
-
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }))
-
-    await waitFor(() => expect(screen.getByText("Upload failed. Please try again.")).toBeInTheDocument())
-    expect(mockPush).not.toHaveBeenCalled()
-  })
-
-  it("shows an error and does not navigate when fetch rejects", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
+  it("shows an error and does not navigate when the upload rejects", async () => {
+    mockUpload.mockRejectedValue(new Error("network down"))
 
     render(<Upload />)
     await waitFor(() => screen.getByText("Drop image here"))

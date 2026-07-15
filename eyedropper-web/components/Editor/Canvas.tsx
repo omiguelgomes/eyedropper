@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { Stage, Layer, Rect, Image as KonvaImage } from "react-konva"
 import type Konva from "konva"
 import type { KonvaEventObject } from "konva/lib/Node"
-import type { CanvasLayout } from "@/lib/canvas-to-916"
+import type { CanvasLayout } from "@/lib/canvas-layout"
 import type { EyedropperPoint } from "@/lib/types"
 import type { Style } from "@/lib/styles"
 import type { SnapGuide, DistributionGuide } from "@/lib/swatch-layout"
@@ -27,12 +27,23 @@ interface CanvasProps {
   // Global size multiplier; forwarded to EyedropperLayer to scale the marker
   // dot/ring, whose base sizes are hardcoded there (not on the style).
   sizeScale: number
-  interactionMode: "select" | "add"
+  interactionMode: "select" | "add" | "pan"
   labelEditMode: boolean
   snapGuides: SnapGuide[]
   distribution: DistributionGuide[]
   pencilTexture: HTMLImageElement | null
   borderTexture: HTMLImageElement | null
+  // Clamped pan offset (canvas units). Applied as a uniform view translation to
+  // the image AND every annotation layer (markers/connectors/swatches/labels/
+  // guides) so the whole scene moves RIGIDLY together during a pan. The layout
+  // itself is pan-free; only this render-time translate (and the swatch/handle
+  // dragBoundFunc clamps, via panX/panY on EyedropperLayer) know about pan.
+  pan: { x: number; y: number }
+  // Precision cue: dashed-ring radius in CANVAS units, forwarded to the
+  // EyedropperLayer. 0/undefined draws nothing.
+  precisionRadius?: number
+  // Pan tool: called with the screen-pixel delta since the last pan event.
+  onPanBy: (screenDX: number, screenDY: number) => void
   onMarkerDragMove: (id: string, canvasX: number, canvasY: number) => void
   onMarkerDragEnd: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
   onSwatchDragMove: (id: string, canvasX: number, canvasY: number) => { x: number; y: number }
@@ -66,6 +77,9 @@ export default function Canvas({
   distribution,
   pencilTexture,
   borderTexture,
+  pan,
+  precisionRadius,
+  onPanBy,
   onMarkerDragMove,
   onMarkerDragEnd,
   onSwatchDragMove,
@@ -83,15 +97,19 @@ export default function Canvas({
 }: CanvasProps) {
   const scale = displayWidth / canvasLayout.canvasWidth
 
+  // Last pointer position during a pan drag (screen/display px). null = not
+  // panning. Held in a ref so it survives re-renders without re-subscribing.
+  const panLast = useRef<{ x: number; y: number } | null>(null)
+
   // The crosshair cursor is set on mouseenter while in add mode. If the mode
   // switches to "select" while the pointer is still over the image, the add-mode
   // onMouseLeave handler is unmounted before it can fire, leaving the cursor
-  // stuck. Reset it explicitly whenever the mode is not "add".
+  // stuck. Reset it explicitly. In pan mode show a grab cursor.
   useEffect(() => {
-    if (interactionMode !== "add") {
-      const c = stageRef.current?.container()
-      if (c) c.style.cursor = "default"
-    }
+    const c = stageRef.current?.container()
+    if (!c) return
+    if (interactionMode === "pan") c.style.cursor = "grab"
+    else if (interactionMode !== "add") c.style.cursor = "default"
   }, [interactionMode])
 
   return (
@@ -103,6 +121,10 @@ export default function Canvas({
       scaleX={scale}
       scaleY={scale}
       onClick={(e: KonvaEventObject<MouseEvent>) => {
+        if (interactionMode === "pan") {
+          // Pan mode consumes drags; ignore clicks entirely.
+          return
+        }
         if (interactionMode === "add") {
           // Konva synthesizes a click for any mouse button, so a right-click
           // (which also opens the Remove context menu) would otherwise add a
@@ -116,6 +138,29 @@ export default function Canvas({
           onDeselect()
         }
       }}
+      {...(interactionMode === "pan" && {
+        onMouseDown: (e: KonvaEventObject<MouseEvent>) => {
+          if (e.evt.button !== 0) return
+          panLast.current = { x: e.evt.clientX, y: e.evt.clientY }
+          const c = e.target.getStage()?.container()
+          if (c) c.style.cursor = "grabbing"
+        },
+        onMouseMove: (e: KonvaEventObject<MouseEvent>) => {
+          if (!panLast.current) return
+          const dx = e.evt.clientX - panLast.current.x
+          const dy = e.evt.clientY - panLast.current.y
+          panLast.current = { x: e.evt.clientX, y: e.evt.clientY }
+          onPanBy(dx, dy)
+        },
+        onMouseUp: (e: KonvaEventObject<MouseEvent>) => {
+          panLast.current = null
+          const c = e.target.getStage()?.container()
+          if (c) c.style.cursor = "grab"
+        },
+        onMouseLeave: () => {
+          panLast.current = null
+        },
+      })}
     >
       <Layer>
         <Rect
@@ -127,10 +172,11 @@ export default function Canvas({
         />
         <KonvaImage
           image={image}
-          x={0}
-          y={canvasLayout.imageOffsetY}
-          width={canvasLayout.canvasWidth}
-          height={imageHeight}
+          x={canvasLayout.imageOffsetX + pan.x}
+          y={canvasLayout.imageOffsetY + pan.y}
+          width={canvasLayout.canvasWidth * canvasLayout.imageScale}
+          height={imageHeight * canvasLayout.imageScale}
+          listening={interactionMode !== "pan"}
           {...(interactionMode === "add" && {
             onMouseEnter: (e: KonvaEventObject<MouseEvent>) => {
               const c = e.target.getStage()?.container()
@@ -145,9 +191,13 @@ export default function Canvas({
       </Layer>
       <EyedropperLayer
         points={points}
+        imageScale={canvasLayout.imageScale}
+        imageOffsetX={canvasLayout.imageOffsetX}
         imageOffsetY={canvasLayout.imageOffsetY}
         canvasWidth={canvasLayout.canvasWidth}
         canvasHeight={canvasLayout.canvasHeight}
+        panX={pan.x}
+        panY={pan.y}
         style={style}
         sizeScale={sizeScale}
         interactionMode={interactionMode}
@@ -161,28 +211,36 @@ export default function Canvas({
         onConnectorDragEnd={onConnectorDragEnd}
         labelEditMode={labelEditMode}
         selectedPointId={selectedPointId}
+        precisionRadius={precisionRadius}
         onRequestRemove={onRequestRemove}
         onSelectPoint={onSelectPoint}
       />
-      {/* Guides above swatches (CAD convention); empty array renders nothing. */}
+      {/* Guides above swatches (CAD convention); empty array renders nothing.
+          Translated by pan like the swatches they align, so the guide lines stay
+          registered with the panned swatch centers. */}
       <SnapGuideLayer
         guides={snapGuides}
         canvasWidth={canvasLayout.canvasWidth}
         canvasHeight={canvasLayout.canvasHeight}
         scale={scale}
+        panX={pan.x}
+        panY={pan.y}
       />
       {/* Equal-interval gap badges (Story 5.3); null renders nothing. The
           alignment line (SnapGuideLayer) and the badges are complementary:
           line = "aligned axis", badges = "equal gaps". */}
-      <DistributionGuideLayer distribution={distribution} scale={scale} />
+      <DistributionGuideLayer distribution={distribution} scale={scale} panX={pan.x} panY={pan.y} />
       {/* Kept mounted in BOTH modes: in edit mode it is the live preview that the
           transparent LabelEditOverlay inputs sit exactly on top of, so what the
-          artist sees while typing is pixel-identical to the export. */}
+          artist sees while typing is pixel-identical to the export. Panned with
+          the scene so labels stay attached to their swatches. */}
       <LabelLayer
         points={points}
         style={style}
         canvasWidth={canvasLayout.canvasWidth}
         canvasHeight={canvasLayout.canvasHeight}
+        panX={pan.x}
+        panY={pan.y}
       />
     </Stage>
     {labelEditMode && (
@@ -191,6 +249,8 @@ export default function Canvas({
         canvasWidth={canvasLayout.canvasWidth}
         canvasHeight={canvasLayout.canvasHeight}
         scale={scale}
+        panX={pan.x}
+        panY={pan.y}
         onUpdateLabelText={onUpdateLabelText}
         onUpdateLabelPos={onUpdateLabelPos}
         onLabelDragEnd={onLabelDragEnd}

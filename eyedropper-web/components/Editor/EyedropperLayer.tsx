@@ -7,18 +7,30 @@ import type { KonvaEventObject } from "konva/lib/Node"
 import type { EyedropperPoint } from "@/lib/types"
 import type { Style } from "@/lib/styles"
 import { computeConnectorGeometry } from "@/lib/swatch-layout"
+import { imageToCanvas } from "@/lib/canvas-layout"
 
 interface Props {
   points: EyedropperPoint[]
+  // Image→canvas transform (cover-crop). imageScale defaults to 1 and
+  // imageOffsetX to 0 so existing callers/tests that pass only imageOffsetY still
+  // render the legacy full-width layout unchanged.
+  imageScale?: number
+  imageOffsetX?: number
   imageOffsetY: number
   canvasWidth: number
   canvasHeight: number
+  // Pan offset (canvas units) applied as a translate on this whole Layer so the
+  // markers/connectors/swatches move RIGIDLY with the panned image. Default 0.
+  // Node-local coords (drag write-backs) stay pan-free; only the dragBoundFuncs,
+  // which see ABSOLUTE stage coords, add the (scaled) pan back in to clamp.
+  panX?: number
+  panY?: number
   style: Style
   // Global size multiplier for the marker dot/ring, whose base sizes (dot r=6,
   // ring r=12, ring stroke=2) are hardcoded here rather than on the style. The
   // swatch/connector/border are already scaled into `style` upstream.
   sizeScale: number
-  interactionMode: "select" | "add"
+  interactionMode: "select" | "add" | "pan"
   // Decoded pastel textures, shared across all swatches. Null until loaded (or
   // when the active style is not textured); the swatch falls back to flat then.
   pencilTexture?: HTMLImageElement | null
@@ -38,6 +50,11 @@ interface Props {
   // underneath the HTML label overlay) and show it only for the selected point.
   labelEditMode?: boolean
   selectedPointId?: string | null
+  // Precision cue: while the artist is adjusting the sample-area (Precision)
+  // slider, draw a dashed ring around each marker at `precisionRadius` (canvas
+  // units) showing the footprint sampleColor averages. Non-interactive and
+  // ephemeral — never part of the export. Omitted/0 → nothing drawn.
+  precisionRadius?: number
 }
 
 // Konva event handler props shared by BOTH swatch render paths (flat Circle and
@@ -165,9 +182,13 @@ export function getSwatchPos(
 
 export default function EyedropperLayer({
   points,
+  imageScale = 1,
+  imageOffsetX = 0,
   imageOffsetY,
   canvasWidth,
   canvasHeight,
+  panX = 0,
+  panY = 0,
   style,
   sizeScale,
   interactionMode,
@@ -183,6 +204,7 @@ export default function EyedropperLayer({
   onConnectorDragEnd,
   labelEditMode,
   selectedPointId,
+  precisionRadius = 0,
 }: Props) {
   // Draw the textured swatch only when the style asks for it AND the pencil has
   // decoded; otherwise the flat Circle is the fallback (float always takes
@@ -191,12 +213,19 @@ export default function EyedropperLayer({
   const useTexture = !!(style.swatchTexture && pencilTexture)
 
   return (
-    <Layer>
+    <Layer x={panX} y={panY}>
       {points.map((p) => {
         if (p.swatchOrder === null && (p.swatchX === null || p.swatchY === null)) return null
 
-        const markerX = p.x
-        const markerY = p.y + imageOffsetY
+        const marker = imageToCanvas(p.x, p.y, {
+          canvasWidth,
+          canvasHeight,
+          imageScale,
+          imageOffsetX,
+          imageOffsetY,
+        })
+        const markerX = marker.x
+        const markerY = marker.y
         const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
         const connector = computeConnectorGeometry({
           swatch: swatchPos,
@@ -236,13 +265,18 @@ export default function EyedropperLayer({
                 // swatch is freely draggable in 2D and clamped to stay fully
                 // inside the 9:16 canvas (image area or letterbox padding).
                 dragBoundFunc: function (pos) {
+                  // Konva passes ABSOLUTE stage-pixel coords. This Layer is
+                  // translated by (panX, panY) canvas units, so the pan-free
+                  // clamp band [r, dim−r] shifts by pan·scale in absolute space.
                   const s = this.getStage()?.scaleX() ?? 1
                   const r = style.swatchRadius * s
                   const w = canvasWidth * s
                   const h = canvasHeight * s
+                  const px = panX * s
+                  const py = panY * s
                   return {
-                    x: Math.max(r, Math.min(w - r, pos.x)),
-                    y: Math.max(r, Math.min(h - r, pos.y)),
+                    x: Math.max(r + px, Math.min(w - r + px, pos.x)),
+                    y: Math.max(r + py, Math.min(h - r + py, pos.y)),
                   }
                 },
                 onMouseEnter: (e: KonvaEventObject<MouseEvent>) => {
@@ -351,6 +385,24 @@ export default function EyedropperLayer({
               })}
             />
 
+            {/* Precision cue — a dashed ring around the marker showing the area
+                sampleColor averages, sized to precisionRadius (canvas units).
+                Shown only while the Precision slider is active; non-interactive so
+                it never blocks drags, and unmounted otherwise so it's absent from
+                the export. Stroke/dash scaled by sizeScale to stay ~constant on
+                screen (matches the marker's constant-size treatment). */}
+            {precisionRadius > 0 && (
+              <Circle
+                x={markerX}
+                y={markerY}
+                radius={precisionRadius}
+                stroke={style.markerColor}
+                strokeWidth={1.5 * sizeScale}
+                dash={[4 * sizeScale, 3 * sizeScale]}
+                listening={false}
+              />
+            )}
+
             {/* Bend handle (Story 5.4) — a small draggable ring at the connector's
                 current midpoint, drawn ON TOP so it is easy to grab. Drag it to bow
                 the line through that point. Shown only for the selected point in
@@ -379,13 +431,16 @@ export default function EyedropperLayer({
                 dragBoundFunc={function (pos) {
                   // Konva passes absolute stage-pixel coords; scale the canvas
                   // bounds by the stage scale. No radius inset — the handle may sit
-                  // anywhere on the canvas (over image or letterbox).
+                  // anywhere on the canvas (over image or letterbox). The Layer is
+                  // translated by (panX, panY), so the band shifts by pan·scale.
                   const s = this.getStage()?.scaleX() ?? 1
                   const w = canvasWidth * s
                   const h = canvasHeight * s
+                  const px = panX * s
+                  const py = panY * s
                   return {
-                    x: Math.max(0, Math.min(w, pos.x)),
-                    y: Math.max(0, Math.min(h, pos.y)),
+                    x: Math.max(px, Math.min(w + px, pos.x)),
+                    y: Math.max(py, Math.min(h + py, pos.y)),
                   }
                 }}
                 onMouseEnter={(e: KonvaEventObject<MouseEvent>) => {

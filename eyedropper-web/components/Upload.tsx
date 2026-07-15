@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { upload } from "@vercel/blob/client"
 import { validateFile, formatSize } from "@/lib/upload-utils"
 
 export default function Upload() {
@@ -39,16 +40,17 @@ export default function Upload() {
     if (!selectedFile || uploading) return
     setUploading(true)
     try {
-      const form = new FormData()
-      form.append("file", selectedFile)
-      const res = await fetch("/api/upload", { method: "POST", body: form })
-      if (!res.ok) {
-        setError("Upload failed. Please try again.")
-        setUploading(false)
-        return
-      }
-      const data = await res.json()
-      router.push(`/editor?id=${data.id}`)
+      // Upload straight to Vercel Blob from the browser. Routing the file
+      // through /api/upload would hit Vercel's ~4.5MB function body cap; the
+      // route now only mints a client token. The id is generated here because
+      // the token route validates the `uploads/<uuid>` pathname it writes to.
+      const id = crypto.randomUUID()
+      await upload(`uploads/${id}`, selectedFile, {
+        access: "private",
+        contentType: selectedFile.type,
+        handleUploadUrl: "/api/upload",
+      })
+      router.push(`/editor?id=${id}`)
     } catch {
       setError("Upload failed. Please try again.")
       setUploading(false)

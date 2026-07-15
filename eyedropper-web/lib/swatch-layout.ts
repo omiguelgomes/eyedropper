@@ -283,9 +283,20 @@ export function assignSwatchLayout(
   points: EyedropperPoint[],
   canvasWidth: number,
   canvasHeight: number,
-  imageOffsetY: number = 0
+  imageOffsetY: number = 0,
+  imageScale: number = 1,
+  imageOffsetX: number = 0
 ): EyedropperPoint[] {
   if (points.length === 0) return []
+
+  // Marker position in canvas space. Under cover-crop the image is scaled by
+  // imageScale and offset by (imageOffsetX, imageOffsetY); at the legacy 9:16
+  // full-width layout imageScale=1 and imageOffsetX=0, so this reduces to the
+  // old `p.y + imageOffsetY`.
+  const toCanvas = (p: EyedropperPoint) => ({
+    x: imageOffsetX + p.x * imageScale,
+    y: imageOffsetY + p.y * imageScale,
+  })
 
   // Free-floating swatches (manually placed) are excluded from edge layout:
   // they keep their absolute (swatchX, swatchY) and do not participate in the
@@ -295,8 +306,7 @@ export function assignSwatchLayout(
   // Step 1: Assign sides for "auto" points — only for non-free points.
   const withSides = points.map((p): EyedropperPoint => {
     if (isFree(p) || p.swatchSide !== "auto") return p
-    const cx = p.x
-    const cy = p.y + imageOffsetY
+    const { x: cx, y: cy } = toCanvas(p)
     const dLeft = cx
     const dRight = canvasWidth - cx
     const dTop = cy
@@ -319,8 +329,8 @@ export function assignSwatchLayout(
 
   // Step 3: Sort each group by coordinate along the edge (no-crossing guarantee)
   const byCanvasY = (a: EyedropperPoint, b: EyedropperPoint) =>
-    (a.y + imageOffsetY) - (b.y + imageOffsetY)
-  const byX = (a: EyedropperPoint, b: EyedropperPoint) => a.x - b.x
+    toCanvas(a).y - toCanvas(b).y
+  const byX = (a: EyedropperPoint, b: EyedropperPoint) => toCanvas(a).x - toCanvas(b).x
   groups.left.sort(byCanvasY)
   groups.right.sort(byCanvasY)
   groups.top.sort(byX)
