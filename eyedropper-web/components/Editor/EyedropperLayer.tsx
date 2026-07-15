@@ -212,28 +212,48 @@ export default function EyedropperLayer({
   // independent: the plain "pastel" style has none, so it is NOT required here.
   const useTexture = !!(style.swatchTexture && pencilTexture)
 
+  // Precompute per-point geometry once so we can render in TWO passes: all
+  // connector lines first (underneath), then all swatches/markers/handles on
+  // top. A single Group-per-point would let a LATER point's connector paint over
+  // an EARLIER point's swatch when the lines cross — swatches must always win.
+  const rendered = points
+    .filter((p) => !(p.swatchOrder === null && (p.swatchX === null || p.swatchY === null)))
+    .map((p) => {
+      const marker = imageToCanvas(p.x, p.y, {
+        canvasWidth,
+        canvasHeight,
+        imageScale,
+        imageOffsetX,
+        imageOffsetY,
+      })
+      const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
+      const connector = computeConnectorGeometry({
+        swatch: swatchPos,
+        marker: { x: marker.x, y: marker.y },
+        connectorMid: p.connectorMid,
+        connectorType: style.connectorType,
+        swatchSide: p.swatchSide,
+      })
+      return { p, markerX: marker.x, markerY: marker.y, swatchPos, connector }
+    })
+
   return (
     <Layer x={panX} y={panY}>
-      {points.map((p) => {
-        if (p.swatchOrder === null && (p.swatchX === null || p.swatchY === null)) return null
+      {/* Pass 1 — all connector lines, underneath every swatch/marker. */}
+      {style.connectorType !== "none" &&
+        rendered.map(({ p, connector }) => (
+          <Line
+            key={p.id}
+            points={connector.linePoints}
+            tension={connector.curved ? 0.5 : 0}
+            stroke={style.connectorColor}
+            strokeWidth={style.connectorWidth}
+            listening={false}
+          />
+        ))}
 
-        const marker = imageToCanvas(p.x, p.y, {
-          canvasWidth,
-          canvasHeight,
-          imageScale,
-          imageOffsetX,
-          imageOffsetY,
-        })
-        const markerX = marker.x
-        const markerY = marker.y
-        const swatchPos = getSwatchPos(p, canvasWidth, canvasHeight, style.swatchRadius)
-        const connector = computeConnectorGeometry({
-          swatch: swatchPos,
-          marker: { x: markerX, y: markerY },
-          connectorMid: p.connectorMid,
-          connectorType: style.connectorType,
-          swatchSide: p.swatchSide,
-        })
+      {/* Pass 2 — swatches, markers, precision cues, and bend handles on top. */}
+      {rendered.map(({ p, markerX, markerY, swatchPos, connector }) => {
         // Show the bend handle only for the SELECTED point, only in select mode,
         // and never in label-edit mode. This keeps at most one small handle on the
         // canvas (uncluttered) and gates interactivity per AC7. Export additionally
@@ -304,18 +324,8 @@ export default function EyedropperLayer({
 
         return (
           <Group key={p.id}>
-            {/* Connector — drawn first (underneath). Geometry from the pure helper;
-                identical to before when the point has never been bent (AC5). The
-                line itself is listening={false}; grabbing is via the handle below. */}
-            {style.connectorType !== "none" && (
-              <Line
-                points={connector.linePoints}
-                tension={connector.curved ? 0.5 : 0}
-                stroke={style.connectorColor}
-                strokeWidth={style.connectorWidth}
-                listening={false}
-              />
-            )}
+            {/* Connector lines render in pass 1 above so a later point's line can
+                never paint over an earlier point's swatch when they cross. */}
 
             {/* Swatch — textured (pastel) or flat Circle (fallback). */}
             {useTexture ? (
