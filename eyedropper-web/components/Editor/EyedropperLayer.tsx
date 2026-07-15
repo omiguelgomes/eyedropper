@@ -287,18 +287,19 @@ export default function EyedropperLayer({
                 // swatch is freely draggable in 2D and clamped to stay fully
                 // inside the 9:16 canvas (image area or letterbox padding).
                 dragBoundFunc: function (pos) {
-                  // Konva passes ABSOLUTE stage-pixel coords. This Layer is
-                  // translated by (panX, panY) canvas units, so the pan-free
-                  // clamp band [r, dim−r] shifts by pan·scale in absolute space.
+                  // Konva passes ABSOLUTE stage-pixel coords and applies the result
+                  // via setAbsolutePosition. The VISIBLE 9:16 frame is fixed on
+                  // screen at [r·s, dim·s − r·s] — independent of pan — so the swatch
+                  // can always reach the current visible edge. (The Layer's own
+                  // (panX, panY) translate positions the node visually; the clamp
+                  // must NOT re-add pan or the swatch would stop at the pre-pan edge.)
                   const s = this.getStage()?.scaleX() ?? 1
                   const r = style.swatchRadius * s
                   const w = canvasWidth * s
                   const h = canvasHeight * s
-                  const px = panX * s
-                  const py = panY * s
                   return {
-                    x: Math.max(r + px, Math.min(w - r + px, pos.x)),
-                    y: Math.max(r + py, Math.min(h - r + py, pos.y)),
+                    x: Math.max(r, Math.min(w - r, pos.x)),
+                    y: Math.max(r, Math.min(h - r, pos.y)),
                   }
                 },
                 onMouseEnter: (e: KonvaEventObject<MouseEvent>) => {

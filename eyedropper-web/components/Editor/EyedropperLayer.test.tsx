@@ -658,10 +658,11 @@ describe("EyedropperLayer", () => {
     expect(inside).toEqual({ x: 100, y: 120 })
   })
 
-  it("swatch dragBoundFunc shifts its absolute-space clamp band by pan·scale", () => {
-    // With the Layer translated by (panX, panY) canvas units, the pan-free clamp
-    // band [r, dim−r] maps into absolute space shifted by pan·scale, so the swatch
-    // stays clamped to the (panned) image, not the frame.
+  it("swatch dragBoundFunc clamps to the VISIBLE frame regardless of pan", () => {
+    // dragBoundFunc returns ABSOLUTE stage coords, and the visible 9:16 frame is
+    // fixed on screen at [r·s, dim·s − r·s]. Panning the image must NOT shift the
+    // clamp band — otherwise the swatch can no longer reach the panned visible edge
+    // (it stops where the pre-pan edge was). So the band is pan-independent.
     const r = defaultStyle.swatchRadius
     const scale = 0.5
     const panX = 40
@@ -675,11 +676,11 @@ describe("EyedropperLayer", () => {
     )
     const bound = lastDragBoundFunc.fn!
     const overflow = bound.call(node, { x: 99999, y: 99999 })
-    expect(overflow.x).toBeCloseTo(w - r * scale + panX * scale)
-    expect(overflow.y).toBeCloseTo(h - r * scale + panY * scale)
+    expect(overflow.x).toBeCloseTo(w - r * scale)
+    expect(overflow.y).toBeCloseTo(h - r * scale)
     const underflow = bound.call(node, { x: -99999, y: -99999 })
-    expect(underflow.x).toBeCloseTo(r * scale + panX * scale)
-    expect(underflow.y).toBeCloseTo(r * scale + panY * scale)
+    expect(underflow.x).toBeCloseTo(r * scale)
+    expect(underflow.y).toBeCloseTo(r * scale)
   })
 
   it("getSwatchPos returns (swatchX, swatchY) when both set, edge position when null (Story 5.1)", () => {
